@@ -1,0 +1,15 @@
+# Virtual environments
+.venv/
+oracleenv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Secrets and binaries
+.env
+wallet/
+instantclient_23_8/
+
+# OS clutter
+.DS_Store
