@@ -1,3 +1,5 @@
+import threading
+import requests
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store
 import os
@@ -7,15 +9,26 @@ app = Flask(__name__)
 @app.route("/slack/events", methods=["POST"])
 def slack_query():
     user_input = request.form.get("text", "").strip()
-    if not user_input:
+    response_url = request.form.get("response_url")
+
+    if not user_input or not response_url:
         return jsonify({"response_type": "ephemeral", "text": "Please enter a question."})
 
-    try:
-        docs = vector_search(user_input)
-        response = generate_answer(user_input, docs)
-        return jsonify({"response_type": "in_channel", "text": response})
-    except Exception as e:
-        return jsonify({"response_type": "ephemeral", "text": f"Error: {str(e)}"})
+    def process_query_and_respond():
+        try:
+            docs = vector_search(user_input)
+            response = generate_answer(user_input, docs)
+        except Exception as e:
+            response = f"Error: {str(e)}"
+
+        requests.post(response_url, json={
+            "response_type": "in_channel",
+            "text": response
+        })
+
+    threading.Thread(target=process_query_and_respond).start()
+
+    return jsonify({"response_type": "ephemeral", "text": "Working on it...⏳"})
 
 
 @app.route("/embed", methods=["POST"])
