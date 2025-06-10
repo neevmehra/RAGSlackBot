@@ -1,0 +1,32 @@
+# Use lightweight Python base image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system packages required by Oracle client
+RUN apt-get update && apt-get install -y libaio1 unzip && rm -rf /var/lib/apt/lists/*
+
+# Copy Oracle Instant Client and Wallet into container
+COPY instantclient_23_8 /opt/oracle/instantclient_23_8
+COPY wallet /opt/oracle/wallet
+COPY .oci /root/.oci
+
+# Set Oracle environment variables
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_23_8
+ENV TNS_ADMIN=/opt/oracle/wallet
+ENV OCI_PROFILE=DEFAULT
+
+# Set DB credentials securely via environment variables
+ENV DB_USER=ADMIN
+ENV DB_PASS=Oracle123456
+ENV DB_DSN=eckoel9tcpqzr2nl_high
+
+# Copy application files
+COPY . .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Run your script
+CMD ["python", "LLMIntegration.py"]
