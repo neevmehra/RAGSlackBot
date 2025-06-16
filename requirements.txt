@@ -1,3 +1,6 @@
 sentence-transformers
 oracledb
 oci
+flask
+python-dotenv
+requests

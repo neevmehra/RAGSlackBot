@@ -114,7 +114,7 @@ def generate_answer(user_query, retrieved_docs):
     user_prompt = (
         f"Context:\n{context}\n\n"
         f"User Question: {user_query}\n\n"
-        "Answer (cite the context when relevant):"
+        "Answer (cite the context when relevant with a specific support ticket name/number):"
     )
 
     chat_request = oci.generative_ai_inference.models.CohereChatRequest(
