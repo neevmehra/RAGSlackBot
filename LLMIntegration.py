@@ -37,25 +37,31 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 # ================== FILE INGESTION + CHUNKING ==================
 def embed_and_store(file_path, table_name):
     encoder = SentenceTransformer('all-MiniLM-L12-v2')
-    
-    with open(file_path, 'r', encoding='utf-8') as f:
-        tickets = json.load(f)  # Load JSON array of tickets
-
-    # Extract and format relevant fields from each ticket
-    docs = []
-    for ticket in tickets:
-        sr_num = ticket.get('sr_number', 'N/A')
-        ticket_id = ticket.get('ticket_id', 'N/A')
-        problem = ticket.get('description', ticket.get('summary', 'N/A'))
-        solution = ticket.get('resolution_description', 'N/A')
-        root_cause = ticket.get('root_cause', 'N/A')
-        doc_text = (
-            f"SR: {sr_num} | Ticket: {ticket_id}\n"
-            f"Problem: {problem}\n"
-            f"Solution: {solution}\n"
-            f"Root Cause: {root_cause}"
-        )
-    docs.append({"text": doc_text})
+    if file_path.endswith('.json'):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            try:
+                # Handle single objects and arrays
+                data = json.load(f)
+                tickets = [data] if isinstance(data, dict) else data
+            except json.JSONDecodeError:
+                return {"error": "Invalid JSON format"}
+        
+        docs = []
+        for ticket in tickets:
+            # Build comprehensive chunk with all relevant fields
+            doc_text = "\n".join([
+                f"SR: {ticket.get('sr_number', 'N/A')}",
+                f"Ticket ID: {ticket.get('ticket_id', 'N/A')}",
+                f"Status: {ticket.get('status', 'N/A')}",
+                f"Priority: {ticket.get('priority', 'N/A')}",
+                f"Product: {ticket.get('product', 'N/A')}",
+                f"Summary: {ticket.get('summary', 'N/A')}",
+                f"Description: {ticket.get('description', 'N/A')}",
+                f"Resolution: {ticket.get('resolution_description', 'N/A')}",
+                f"Root Cause: {ticket.get('root_cause', 'N/A')}",
+                f"Customer: {ticket.get('customer_account', 'N/A')}"
+            ])
+            docs.append({"text": doc_text})
     
     # Existing embedding and DB storage logic below
     data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
