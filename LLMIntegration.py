@@ -37,20 +37,27 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 # ================== FILE INGESTION + CHUNKING ==================
 def embed_and_store(file_path, table_name):
     encoder = SentenceTransformer('all-MiniLM-L12-v2')
+    
     with open(file_path, 'r', encoding='utf-8') as f:
-        raw_text = f.read()
+        tickets = json.load(f)  # Load JSON array of tickets
 
-    qa_pairs = re.findall(r"Q:(.*?)\nA:(.*?)(?:\n\n|$)", raw_text, re.DOTALL)
-    docs = [ {"text": f"Q: {q.strip()} A: {a.strip()}"} for q, a in qa_pairs ]
-
-    data = [
-        {"id": idx, "vector_source": row['text'], "payload": row}
-        for idx, row in enumerate(docs)
-    ]
-
+    # Extract and format relevant fields from each ticket
+    docs = []
+    for ticket in tickets:
+        chunk_text = (
+            f"Ticket ID: {ticket.get('ticket_id', 'N/A')}\n"
+            f"Problem: {ticket.get('description', ticket.get('summary', 'N/A'))}\n"
+            f"Solution: {ticket.get('resolution_description', 'N/A')}\n"
+            f"Root Cause: {ticket.get('root_cause', 'N/A')}\n"
+            f"Product: {ticket.get('product', 'N/A')}"
+        )
+        docs.append({"text": chunk_text})
+    
+    # Existing embedding and DB storage logic below
+    data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
     texts = [row['vector_source'] for row in data]
     embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
-
+    
     for row, embedding in zip(data, embeddings):
         row['vector'] = array.array("f", embedding)
 
