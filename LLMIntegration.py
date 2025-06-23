@@ -44,14 +44,18 @@ def embed_and_store(file_path, table_name):
     # Extract and format relevant fields from each ticket
     docs = []
     for ticket in tickets:
-        chunk_text = (
-            f"Ticket ID: {ticket.get('ticket_id', 'N/A')}\n"
-            f"Problem: {ticket.get('description', ticket.get('summary', 'N/A'))}\n"
-            f"Solution: {ticket.get('resolution_description', 'N/A')}\n"
-            f"Root Cause: {ticket.get('root_cause', 'N/A')}\n"
-            f"Product: {ticket.get('product', 'N/A')}"
+        sr_num = ticket.get('sr_number', 'N/A')
+        ticket_id = ticket.get('ticket_id', 'N/A')
+        problem = ticket.get('description', ticket.get('summary', 'N/A'))
+        solution = ticket.get('resolution_description', 'N/A')
+        root_cause = ticket.get('root_cause', 'N/A')
+        doc_text = (
+            f"SR: {sr_num} | Ticket: {ticket_id}\n"
+            f"Problem: {problem}\n"
+            f"Solution: {solution}\n"
+            f"Root Cause: {root_cause}"
         )
-        docs.append({"text": chunk_text})
+    docs.append({"text": doc_text})
     
     # Existing embedding and DB storage logic below
     data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
