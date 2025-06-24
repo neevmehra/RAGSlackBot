@@ -12,35 +12,47 @@ file_cache = {}
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
-    # Handle Events API verification and event callbacks (JSON)
+    # Initialize data to None
+    data = None
+    
+    # Handle JSON requests first
     if request.is_json:
         data = request.get_json()
-    # Handle file_shared event
-    if data.get("event", {}).get("type") == "file_shared":
-        event = data["event"]
-        file_id = event["file_id"]
-        user_id = event["user_id"]
-        channel_id = event.get("channel_id")
-        if channel_id:  # Sometimes channel_id is not present
-            file_cache[(user_id, channel_id)] = {
-                "file_id": file_id,
-                "timestamp": event["event_ts"]
-            }
-        return jsonify({}), 200
-    # Handle message event with file_share subtype
-    if data.get("event", {}).get("type") == "message" and data.get("event", {}).get("subtype") == "file_share":
-        event = data["event"]
-        files = event.get("files", [])
-        if files:
-            file_id = files[0]["id"]
-            user_id = event.get("user")
-            channel_id = event.get("channel")
-            if user_id and channel_id:
+    
+    # Process Events API payloads
+    if data:
+        # URL verification challenge
+        if "challenge" in data:
+            return jsonify({"challenge": data["challenge"]})
+        
+        # Handle file_shared event
+        if data.get("event", {}).get("type") == "file_shared":
+            event = data["event"]
+            file_id = event["file_id"]
+            user_id = event["user_id"]
+            channel_id = event.get("channel_id")
+            if channel_id:
                 file_cache[(user_id, channel_id)] = {
                     "file_id": file_id,
-                    "timestamp": event["ts"]
+                    "timestamp": event["event_ts"]
                 }
-        return jsonify({}), 200
+            return jsonify({}), 200
+        
+        # Handle message event with file_share subtype
+        if (data.get("event", {}).get("type") == "message" and 
+            data.get("event", {}).get("subtype") == "file_share"):
+            event = data["event"]
+            files = event.get("files", [])
+            if files:
+                file_id = files[0]["id"]
+                user_id = event.get("user")
+                channel_id = event.get("channel")
+                if user_id and channel_id:
+                    file_cache[(user_id, channel_id)] = {
+                        "file_id": file_id,
+                        "timestamp": event["ts"]
+                    }
+            return jsonify({}), 200
 
     # Handle Slash Commands (form-encoded)
     user_input = request.form.get("text", "").strip()
@@ -52,20 +64,37 @@ def slack_events():
     if command == "/oracleembed":
         table_match = re.search(r'table_name=(\w+)', user_input)
         if not table_match:
-            return jsonify({"response_type": "ephemeral", "text": "Missing table_name parameter. Usage: `/oracleembed table_name=your_table`"})
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "Missing table_name parameter. Usage: `/oracleembed table_name=your_table`"
+            })
+        
         table_name = table_match.group(1)
         file_info = file_cache.get((user_id, channel_id))
+        
         if not file_info:
-            return jsonify({"response_type": "ephemeral", "text": "No recent file found. Please upload a file first."})
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "No recent file found. Please upload a file first."
+            })
+        
         threading.Thread(
             target=process_slack_embedding,
             args=(file_info["file_id"], table_name, response_url)
         ).start()
-        return jsonify({"response_type": "ephemeral", "text": "Processing your file embedding..."})
-
+        
+        return jsonify({
+            "response_type": "ephemeral",
+            "text": "Processing your file embedding..."
+        })
+    
     elif command == "/oraclebot":
         if not user_input or not response_url:
-            return jsonify({"response_type": "ephemeral", "text": "Please enter a question."})
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "Please enter a question."
+            })
+        
         def process_query_and_respond():
             try:
                 docs = vector_search(user_input)
@@ -76,11 +105,16 @@ def slack_events():
                 "response_type": "in_channel",
                 "text": response
             })
+        
         threading.Thread(target=process_query_and_respond).start()
-        return jsonify({"response_type": "ephemeral", "text": "Working on it...⏳"})
-
+        return jsonify({
+            "response_type": "ephemeral",
+            "text": "Working on it...⏳"
+        })
+    
     return jsonify({"error": "Unsupported command"}), 400
 
+# Rest of the code remains unchanged
 def download_slack_file(file_id):
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
     file_info = requests.get(
