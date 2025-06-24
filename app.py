@@ -15,21 +15,31 @@ def slack_events():
     # Handle Events API verification and event callbacks (JSON)
     if request.is_json:
         data = request.get_json()
-        # URL verification challenge
-        if "challenge" in data:
-            return jsonify({"challenge": data["challenge"]})
-        # file_shared event
-        if data.get("event", {}).get("type") == "file_shared":
-            event = data["event"]
-            file_id = event["file_id"]
-            user_id = event["user_id"]
-            channel_id = event["channel_id"]
+    # Handle file_shared event
+    if data.get("event", {}).get("type") == "file_shared":
+        event = data["event"]
+        file_id = event["file_id"]
+        user_id = event["user_id"]
+        channel_id = event.get("channel_id")
+        if channel_id:  # Sometimes channel_id is not present
             file_cache[(user_id, channel_id)] = {
                 "file_id": file_id,
                 "timestamp": event["event_ts"]
             }
-            return jsonify({}), 200
-        # Not a recognized event
+        return jsonify({}), 200
+    # Handle message event with file_share subtype
+    if data.get("event", {}).get("type") == "message" and data.get("event", {}).get("subtype") == "file_share":
+        event = data["event"]
+        files = event.get("files", [])
+        if files:
+            file_id = files[0]["id"]
+            user_id = event.get("user")
+            channel_id = event.get("channel")
+            if user_id and channel_id:
+                file_cache[(user_id, channel_id)] = {
+                    "file_id": file_id,
+                    "timestamp": event["ts"]
+                }
         return jsonify({}), 200
 
     # Handle Slash Commands (form-encoded)
