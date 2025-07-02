@@ -131,7 +131,14 @@ def generate_answer(user_query, retrieved_docs):
     user_prompt = (
         f"Context:\n{context}\n\n"
         f"User Question: {user_query}\n\n"
-        "Answer (cite the context when relevant with a specific support ticket name/number):"
+        f"You are helping a support engineer troubleshoot a customer issue using historical ticket data. "
+        f"Answer their question by:\n"
+        f"- Citing specific ticket IDs (e.g., TECH-8926) when referencing similar cases\n"
+        f"- Explaining what worked in past resolutions\n"
+        f"- Providing actionable troubleshooting steps based on successful tickets\n"
+        f"- Including resolution timeframes and root causes from the ticket data\n"
+        f"- Never suggesting to 'contact support' - they ARE support\n\n"
+        f"Answer:"
     )
 
     chat_request = oci.generative_ai_inference.models.CohereChatRequest(
