@@ -126,6 +126,42 @@ def vector_search(user_query):
     retrieved_docs.sort(key=lambda x: x[0])
     return [text for _, text in retrieved_docs[:topK]]
 
+def filter_support_language(text):
+    """Filter out phrases that suggest contacting/escalating to support"""
+    
+    # Patterns to remove (case-insensitive)
+    unwanted_patterns = [
+        r"escalate.*?to.*?support",
+        r"contact.*?support.*?team",
+        r"reach out to.*?support",
+        r"work with.*?support",
+        r"collaborate with.*?support",
+        r"involve.*?support.*?team",
+        r"escalate.*?the.*?issue",
+        r"escalate.*?this.*?case",
+        r"contact.*?your.*?support",
+        r"if.*?unable.*?escalate",
+        r"consider.*?escalation",
+        r"escalation.*?path",
+        r"escalate.*?immediately",
+        r"immediate.*?escalation"
+    ]
+    
+    # Remove unwanted patterns
+    filtered_text = text
+    for pattern in unwanted_patterns:
+        filtered_text = re.sub(pattern, "", filtered_text, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace and line breaks
+    filtered_text = re.sub(r'\n\s*\n', '\n', filtered_text)  # Remove empty lines
+    filtered_text = re.sub(r'[ ]+', ' ', filtered_text)      # Remove extra spaces
+    
+    # Remove bullet points that became empty after filtering
+    filtered_text = re.sub(r'\n\s*[-•]\s*\n', '\n', filtered_text)
+    
+    return filtered_text.strip()
+
+
 def generate_answer(user_query, retrieved_docs):
     context = "\n==========\n".join(retrieved_docs)
     user_prompt = (
@@ -158,7 +194,11 @@ def generate_answer(user_query, retrieved_docs):
     )
 
     chat_response = generative_ai_inference_client.chat(chat_detail)
-    return chat_response.data.chat_response.text
+       # Apply post-processing filter
+    raw_response = chat_response.data.chat_response.text
+    filtered_response = filter_support_language(raw_response)
+    
+    return filtered_response
 
 # ================== ENTRY POINT ==================
 if __name__ == "__main__":
