@@ -1,4 +1,4 @@
-import os, sys, array, json, re, time
+import os, sys, array, json, re, time, sqlite3
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
@@ -35,7 +35,7 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 )
 
 # ================== FILE INGESTION + CHUNKING ==================
-def embed_and_store(file_path, table_name):
+def embed_and_store(file_path, table_name, schema):
     encoder = SentenceTransformer('all-MiniLM-L12-v2')
     if file_path.endswith('.json'):
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -45,7 +45,7 @@ def embed_and_store(file_path, table_name):
                 tickets = [data] if isinstance(data, dict) else data
             except json.JSONDecodeError:
                 return {"error": "Invalid JSON format"}
-        
+
         docs = []
         for ticket in tickets:
             # Build comprehensive chunk with all relevant fields
@@ -76,12 +76,12 @@ def embed_and_store(file_path, table_name):
             cursor.execute(f"""
                 SELECT COUNT(*) FROM all_tables
                 WHERE table_name = :table_name AND owner = :owner
-            """, {'table_name': table_name.upper(), 'owner': un.upper()})
+            """, {'table_name': table_name.upper(), 'owner': schema.upper()})
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
                 cursor.execute(f"""
-                    CREATE TABLE {table_name} (
+                    CREATE TABLE {schema}.{table_name} (
                         id NUMBER PRIMARY KEY,
                         payload CLOB CHECK (payload IS JSON),
                         vector VECTOR
@@ -90,13 +90,13 @@ def embed_and_store(file_path, table_name):
 
             prepared_data = [(row['id'], json.dumps(row['payload']), row['vector']) for row in data]
             cursor.executemany(
-                f"INSERT INTO {table_name} (id, payload, vector) VALUES (:1, :2, :3)",
+                f"INSERT INTO {schema}.{table_name} (id, payload, vector) VALUES (:1, :2, :3)",
                 prepared_data
             )
             connection.commit()
 
 # ================== VECTOR SEARCH + GENERATE ==================
-def vector_search(user_query):
+def vector_search(user_query, schema):
     embedding = list(embedding_model.encode(user_query))
     vec = array.array("f", embedding)
     retrieved_docs = []
@@ -106,14 +106,14 @@ def vector_search(user_query):
             cursor.execute("""
                 SELECT table_name FROM all_tables
                 WHERE owner = :owner AND table_name NOT LIKE 'BIN$%'
-            """, {'owner': un.upper()})
+            """, {'owner': schema.upper()})
             tables = [row[0] for row in cursor.fetchall()]
 
             for table_name in tables:
                 try:
                     sql_retrieval = f'''
                         SELECT payload, VECTOR_DISTANCE(vector, :vector, EUCLIDEAN) as score 
-                        FROM {table_name}
+                        FROM {schema}.{table_name}
                         ORDER BY score 
                         FETCH APPROX FIRST {topK} ROWS ONLY
                     '''
@@ -207,7 +207,8 @@ if __name__ == "__main__":
     if mode == 'embed':
         path = input("Enter path to your FAQ file: ").strip()
         table_name = input("Enter the table name to store this data: ").strip()
-        embed_and_store(path, table_name)
+        schema = input("Enter schema name (e.g., TeamA): ").strip()
+        embed_and_store(path, table_name, schema)
         print("Embedding + DB insert complete.")
 
     elif mode == 'ask':
@@ -215,6 +216,7 @@ if __name__ == "__main__":
             user_input = input("\nAsk your question (or type quit): ").strip()
             if user_input.lower() in ["quit", "exit"]:
                 break
-            docs = vector_search(user_input)
+            schema = input("Enter schema name (e.g., TeamA): ").strip()
+            docs = vector_search(user_input, schema)
             response = generate_answer(user_input, docs)
             print("\nGenerated Answer:\n", response)

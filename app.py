@@ -4,6 +4,7 @@ import os
 import re
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store
+import sqlite3
 
 app = Flask(__name__)
 
@@ -62,14 +63,19 @@ def slack_events():
     channel_id = request.form.get("channel_id")
 
     if command == "/oracleembed":
+        schema = get_schema_for_user(user_id)
+        if not schema:
+            return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
+
         table_match = re.search(r'table_name=(\w+)', user_input)
+
         if not table_match:
             return jsonify({
                 "response_type": "ephemeral",
                 "text": "Missing table_name parameter. Usage: `/oracleembed table_name=your_table`"
             })
         
-        table_name = table_match.group(1)
+        table_name = f"{schema}.{table_match.group(1)}"
         file_info = file_cache.get((user_id, channel_id))
         
         if not file_info:
@@ -80,7 +86,7 @@ def slack_events():
         
         threading.Thread(
             target=process_slack_embedding,
-            args=(file_info["file_id"], table_name, response_url)
+            args=(user_id, file_info["file_id"], table_name, response_url)
         ).start()
         
         return jsonify({
@@ -89,6 +95,11 @@ def slack_events():
         })
     
     elif command == "/oraclebot":
+        schema = get_schema_for_user(user_id)
+
+        if not schema:
+            return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
+
         if not user_input or not response_url:
             return jsonify({
                 "response_type": "ephemeral",
@@ -97,7 +108,7 @@ def slack_events():
         
         def process_query_and_respond():
             try:
-                docs = vector_search(user_input)
+                docs = vector_search(user_input, schema)
                 response = generate_answer(user_input, docs)
             except Exception as e:
                 response = f"Error: {str(e)}"
@@ -114,6 +125,77 @@ def slack_events():
     
     return jsonify({"error": "Unsupported command"}), 400
 
+@app.route("/embed", methods=["POST"])
+def embed_file():
+
+    # user_id = request.form.get("user_id")
+    # schema = get_schema_for_user(user_id)
+    # if not schema:
+    #     return jsonify({
+    #         "response_type": "ephemeral",
+    #         "text": "You are not assigned to any team/schema. Please use /setteam first."
+    #     })
+
+    # # Enforce table_name is within user's schema
+    # if not table_name.startswith(f"{schema}."):
+    #     return jsonify({
+    #         "response_type": "ephemeral",
+    #         "text": f"You can only embed into tables in your assigned schema: {schema}."
+    #     })
+
+    user_id = request.form.get("user_id")
+    schema = get_schema_for_user(user_id)
+    file = request.files.get("file")
+    table_name = request.form.get("table_name")
+    table_name = f"{schema}.{table_name}"
+
+    if not file or not table_name:
+        return jsonify({"error": "Missing file or table_name"}), 400
+    try:
+        temp_path = f"/tmp/{file.filename}"
+        file.save(temp_path)
+        embed_and_store(temp_path, table_name, schema)
+        os.remove(temp_path)
+        return jsonify({"status": "success", "message": f"File embedded into table {table_name}."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+@app.route("/slack/commands", methods=["POST"])
+def slack_commands():
+    command = request.form.get("command")
+    user_id = request.form.get("user_id")
+    text = request.form.get("text", "").strip()
+
+    if command == "/setteam":
+        team = text.lower()
+        update_user_team(user_id, team)
+        return jsonify({"text": f"Your team has been set to `{team}`."})
+    
+def update_user_team(user_id, team):
+    conn = sqlite3.connect("user_team.db")
+    cur = conn.cursor()
+    cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_team (
+                slack_user_id TEXT PRIMARY KEY,
+                team_schema TEXT
+                )
+                """)
+    cur.execute("""
+        INSERT INTO user_team (slack_user_id, team_schema)
+        VALUES (?, ?)
+        ON CONFLICT(slack_user_id) DO UPDATE SET team_schema=excluded.team_schema
+    """, (user_id, team))
+    conn.commit()
+    conn.close()
+
+def get_schema_for_user(user_id):
+    conn = sqlite3.connect("user_team.db")
+    cur = conn.cursor()
+    cur.execute("SELECT team_schema FROM user_team WHERE slack_user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
 # Rest of the code remains unchanged
 def download_slack_file(file_id):
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
@@ -129,13 +211,16 @@ def download_slack_file(file_id):
         raise Exception(f"Download failed: HTTP {file_response.status_code}")
     return file_response.content, file_info["file"]["name"]
 
-def process_slack_embedding(file_id, table_name, response_url):
+def process_slack_embedding(user_id, file_id, table_name, response_url):
+    
+    schema = get_schema_for_user(user_id)
+    
     try:
         file_content, filename = download_slack_file(file_id)
         temp_path = f"/tmp/{filename}"
         with open(temp_path, "wb") as f:
             f.write(file_content)
-        embed_and_store(temp_path, table_name)
+        embed_and_store(temp_path, table_name, schema)
         os.remove(temp_path)
         requests.post(response_url, json={
             "response_type": "in_channel",
@@ -146,21 +231,6 @@ def process_slack_embedding(file_id, table_name, response_url):
             "response_type": "ephemeral",
             "text": f"❌ Embedding failed: {str(e)}"
         })
-
-@app.route("/embed", methods=["POST"])
-def embed_file():
-    file = request.files.get("file")
-    table_name = request.form.get("table_name")
-    if not file or not table_name:
-        return jsonify({"error": "Missing file or table_name"}), 400
-    try:
-        temp_path = f"/tmp/{file.filename}"
-        file.save(temp_path)
-        embed_and_store(temp_path, table_name)
-        os.remove(temp_path)
-        return jsonify({"status": "success", "message": f"File embedded into table {table_name}."})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
