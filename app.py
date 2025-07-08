@@ -171,6 +171,15 @@ def slack_commands():
         update_user_team(user_id, team)
         return jsonify({"text": f"Your team has been set to `{team}`."})
     
+    if command == "/unsetteam":
+        conn = sqlite3.connect("user_team.db")
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_team WHERE slack_user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"text": "✅ Your team assignment has been removed."})
+
+    
 def update_user_team(user_id, team):
     conn = sqlite3.connect("user_team.db")
     cur = conn.cursor()
@@ -214,7 +223,7 @@ def download_slack_file(file_id):
 def process_slack_embedding(user_id, file_id, table_name, response_url):
     
     schema = get_schema_for_user(user_id)
-    
+
     try:
         file_content, filename = download_slack_file(file_id)
         temp_path = f"/tmp/{filename}"
