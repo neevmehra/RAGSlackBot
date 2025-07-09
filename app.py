@@ -127,38 +127,29 @@ def slack_events():
 
 @app.route("/embed", methods=["POST"])
 def embed_file():
-
-    # user_id = request.form.get("user_id")
-    # schema = get_schema_for_user(user_id)
-    # if not schema:
-    #     return jsonify({
-    #         "response_type": "ephemeral",
-    #         "text": "You are not assigned to any team/schema. Please use /setteam first."
-    #     })
-
-    # # Enforce table_name is within user's schema
-    # if not table_name.startswith(f"{schema}."):
-    #     return jsonify({
-    #         "response_type": "ephemeral",
-    #         "text": f"You can only embed into tables in your assigned schema: {schema}."
-    #     })
-
-    user_id = request.form.get("user_id")
-    schema = get_schema_for_user(user_id)
-    file = request.files.get("file")
+    schema = request.form.get("schema")  # Use schema directly now (from HTML)
     table_name = request.form.get("table_name")
-    table_name = f"{schema}.{table_name}"
+    file = request.files.get("file")
 
-    if not file or not table_name:
-        return jsonify({"error": "Missing file or table_name"}), 400
+    if not file or not table_name or not schema:
+        return jsonify({"error": "Missing file, table_name, or schema"}), 400
+
+    full_table_name = f"{schema}.{table_name}"
+
     try:
         temp_path = f"/tmp/{file.filename}"
         file.save(temp_path)
-        embed_and_store(temp_path, table_name, schema)
+        embed_and_store(temp_path, full_table_name, schema)
         os.remove(temp_path)
-        return jsonify({"status": "success", "message": f"File embedded into table {table_name}."})
+        return jsonify({
+            "status": "success",
+            "message": f"✅ File embedded into `{full_table_name}`."
+        })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": f"❌ Embedding failed: {str(e)}"
+        }), 500
     
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
