@@ -2,9 +2,14 @@ import threading
 import requests
 import os
 import re
+import redis
+import json
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store
 import sqlite3
+
+# Connect to local Redis instance
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__)
 
@@ -94,6 +99,11 @@ def slack_events():
             "text": "Processing your file embedding..."
         })
     
+    elif command == "/resetcontext":
+        memory_key = f"context:{user_id}:{channel_id}"
+        redis_client.delete(memory_key)
+        return jsonify({"text": "🔁 Context memory has been cleared."})
+
     elif command == "/oraclebot":
         schema = get_schema_for_user(user_id)
 
@@ -108,8 +118,26 @@ def slack_events():
         
         def process_query_and_respond():
             try:
+                # Fetch previous memory if any
+                memory_key = f"context:{user_id}:{channel_id}"
+                prior_memory = redis_client.get(memory_key)
+                memory_text = [] # Test this out, but if too bloated replace with memory_text[-5:]
+
+                if prior_memory:
+                    memory_text = json.loads(prior_memory)
+
+                # Combine vector search with short-term memory
                 docs = vector_search(user_input, schema)
-                response = generate_answer(user_input, docs)
+                all_context = memory_text + docs
+                response = generate_answer(user_input, all_context)
+
+                # Update the memory with this latest turn
+                new_entry = f"User: {user_input}\nBot: {response}"
+                memory_text.append(new_entry)
+
+                # Save back to Redis with TTL = 15 mins (900 seconds)
+                redis_client.setex(memory_key, 900, json.dumps(memory_text))
+
             except Exception as e:
                 response = f"Error: {str(e)}"
             requests.post(response_url, json={
