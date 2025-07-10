@@ -37,16 +37,21 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 # ================== FILE INGESTION + CHUNKING ==================
 def embed_and_store(file_path, table_name, schema):
     encoder = SentenceTransformer('all-MiniLM-L12-v2')
+    docs = []
+
     if file_path.endswith('.json'):
         with open(file_path, 'r', encoding='utf-8') as f:
             try:
                 # Handle single objects and arrays
                 data = json.load(f)
                 tickets = [data] if isinstance(data, dict) else data
+
+                if not tickets:
+                    return {"error": "No tickets found in the JSON file."}
+                
             except json.JSONDecodeError:
                 return {"error": "Invalid JSON format"}
-
-        docs = []
+        
         for ticket in tickets:
             # Build comprehensive chunk with all relevant fields
             doc_text = "\n".join([
@@ -79,6 +84,10 @@ def embed_and_store(file_path, table_name, schema):
                             docs.append({
                                 "text": f"PDF Content (Page {idx + 1}): {paragraph}",
                                 "source": f"PDF_{os.path.basename (file_path)}" })  ###end of the pdf extraction
+                            
+    else:
+        return {"error": "Unsupported file type. Only .json and .pdf are supported."}
+
     
     # Existing embedding and DB storage logic below
     data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
