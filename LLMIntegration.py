@@ -109,7 +109,7 @@ def embed_and_store(file_path, table_name, schema):
                 cursor.execute(f"""
                     CREATE TABLE {schema}.{table_name} (
                         id NUMBER PRIMARY KEY,
-                        payload CLOB CHECK (payload IS JSON),
+                        payload CLOB,
                         vector VECTOR
                     )
                 """)
