@@ -1,4 +1,4 @@
-import os, sys, array, json, re, time, sqlite3
+import os, sys, array, json, re, time, sqlite3, PyPDF2
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
@@ -62,6 +62,23 @@ def embed_and_store(file_path, table_name, schema):
                 f"Customer: {ticket.get('customer_account', 'N/A')}"
             ])
             docs.append({"text": doc_text})
+
+    elif file_path.endswith('.pdf'):
+            with open(file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                text = ""
+                for page in pdf_reader.pages:
+                    page_text = page.extract_text() or ""
+                    text += page_text + "\n"
+
+                    #lets chunkc!
+                    paragraphs = [long.strip() for long in text.split('\n')
+                    if long.strip()]
+                    for idx, paragraph in enumerate(paragraphs):
+                        if len(paragraph) > 50:
+                            docs.append({
+                                "text": f"PDF Content (Page {idx + 1}): {paragraph}",
+                                "source": f"PDF_{os.path.basename (file_path)}" })  ###end of the pdf extraction
     
     # Existing embedding and DB storage logic below
     data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]

@@ -199,7 +199,6 @@ def slack_commands():
         conn.close()
         return jsonify({"text": "✅ Your team assignment has been removed."})
 
-    
 def update_user_team(user_id, team):
     conn = sqlite3.connect("user_team.db")
     cur = conn.cursor()
