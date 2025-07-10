@@ -200,6 +200,27 @@ def generate_answer(user_query, retrieved_docs):
     
     return filtered_response
 
+# ================== SCHEMA MANIPULATION ==================
+def create_schema_if_not_exists(schema_name):
+    admin_user = os.getenv("DB_ADMIN_USER")
+    admin_pass = os.getenv("DB_ADMIN_PASS")
+    dsn = os.getenv("DB_DSN")
+
+    schema_name = schema_name.upper()
+    password = "TempStrongPass123"  # You could randomize this or store securely
+
+    with oracledb.connect(user=admin_user, password=admin_pass, dsn=dsn) as conn:
+        with conn.cursor() as cur:
+            # Check if schema (user) already exists
+            cur.execute("SELECT COUNT(*) FROM dba_users WHERE username = :name", {"name": schema_name})
+            exists = cur.fetchone()[0] > 0
+
+            if not exists:
+                cur.execute(f"CREATE USER {schema_name} IDENTIFIED BY {password}")
+                cur.execute(f"GRANT CONNECT, RESOURCE TO {schema_name}")
+                cur.execute(f"ALTER USER {schema_name} DEFAULT TABLESPACE users TEMPORARY TABLESPACE temp")
+                conn.commit()
+
 # ================== ENTRY POINT ==================
 if __name__ == "__main__":
     mode = input("Type 'embed' to load/encode data or 'ask' to query: ").strip().lower()

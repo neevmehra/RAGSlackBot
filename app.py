@@ -5,7 +5,7 @@ import re
 import redis
 import json
 from flask import Flask, request, jsonify
-from LLMIntegration import vector_search, generate_answer, embed_and_store
+from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 import sqlite3
 
 # Connect to local Redis instance
@@ -121,7 +121,7 @@ def slack_events():
                 # Fetch previous memory if any
                 memory_key = f"context:{user_id}:{channel_id}"
                 prior_memory = redis_client.get(memory_key)
-                memory_text = [] # Test this out, but if too bloated replace with memory_text[-5:]
+                memory_text = memory_text[-7:] # Test this out, but if too bloated replace with memory_text[-5:]
 
                 if prior_memory:
                     memory_text = json.loads(prior_memory)
@@ -186,9 +186,10 @@ def slack_commands():
     text = request.form.get("text", "").strip()
 
     if command == "/setteam":
-        team = text.lower()
+        team = text.strip().lower()
+        create_schema_if_not_exists(team)
         update_user_team(user_id, team)
-        return jsonify({"text": f"Your team has been set to `{team}`."})
+        return jsonify({"text": f"✅ Your team has been set to `{team}` and schema created (if needed)."})
     
     if command == "/unsetteam":
         conn = sqlite3.connect("user_team.db")
