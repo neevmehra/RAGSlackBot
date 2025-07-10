@@ -202,8 +202,8 @@ def generate_answer(user_query, retrieved_docs):
 
 # ================== SCHEMA MANIPULATION ==================
 def create_schema_if_not_exists(schema_name):
-    admin_user = os.getenv("DB_ADMIN_USER")
-    admin_pass = os.getenv("DB_ADMIN_PASS")
+    admin_user = os.getenv("DB_USER")
+    admin_pass = os.getenv("DB_PASS")
     dsn = os.getenv("DB_DSN")
 
     schema_name = schema_name.upper()
