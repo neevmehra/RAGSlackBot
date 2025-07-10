@@ -246,6 +246,7 @@ def create_schema_if_not_exists(schema_name):
                 cur.execute(f"CREATE USER {schema_name} IDENTIFIED BY {password}")
                 cur.execute(f"GRANT CONNECT, RESOURCE TO {schema_name}")
                 cur.execute(f"ALTER USER {schema_name} DEFAULT TABLESPACE users TEMPORARY TABLESPACE temp")
+                cur.execute(f"ALTER USER {schema_name} QUOTA UNLIMITED ON data")
                 conn.commit()
 
 # ================== ENTRY POINT ==================

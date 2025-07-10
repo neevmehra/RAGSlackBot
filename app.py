@@ -171,7 +171,7 @@ def embed_file():
         os.remove(temp_path)
         return jsonify({
             "status": "success",
-            "message": f"✅ File embedded into `{full_table_name}`."
+            "message": f"✅ File embedded into `{table_name}`."
         })
     except Exception as e:
         return jsonify({
