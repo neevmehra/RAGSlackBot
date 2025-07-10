@@ -106,6 +106,7 @@ def embed_and_store(file_path, table_name, schema):
             exists = cursor.fetchone()[0] > 0
 
             if not exists:
+                print("Creating table with:", schema, table_name)
                 cursor.execute(f"""
                     CREATE TABLE {schema}.{table_name} (
                         id NUMBER PRIMARY KEY,
