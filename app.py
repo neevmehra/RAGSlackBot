@@ -2,11 +2,16 @@ import threading
 import requests
 import os
 import re
+import redis
+import json
 from flask import Flask, request, jsonify
-from LLMIntegration import vector_search, generate_answer, embed_and_store
+from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 import sqlite3
 from telemetry import setup_telemetry 
 from opentelemetry import trace
+
+# Connect to local Redis instance
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__)
 tracer = setup_telemetry(app)
@@ -98,6 +103,11 @@ def slack_events():
             "text": "Processing your file embedding..."
         })
     
+    elif command == "/resetcontext":
+        memory_key = f"context:{user_id}:{channel_id}"
+        redis_client.delete(memory_key)
+        return jsonify({"text": "🔁 Context memory has been cleared."})
+
     elif command == "/oraclebot":
         schema = get_schema_for_user(user_id)
 
@@ -112,8 +122,29 @@ def slack_events():
         
         def process_query_and_respond():
             try:
+                # Fetch previous memory if any
+                memory_key = f"context:{user_id}:{channel_id}"
+                prior_memory = redis_client.get(memory_key)
+
+                if prior_memory:
+                    memory_text = json.loads(prior_memory)
+                else:
+                    memory_text = []
+
+                memory_text = memory_text[-7:]  # Trim after assigning
+
+                # Combine vector search with short-term memory
                 docs = vector_search(user_input, schema)
-                response = generate_answer(user_input, docs)
+                all_context = memory_text + docs
+                response = generate_answer(user_input, all_context)
+
+                # Update the memory with this latest turn
+                new_entry = f"User: {user_input}\nBot: {response}"
+                memory_text.append(new_entry)
+
+                # Save back to Redis with TTL = 15 mins (900 seconds)
+                redis_client.setex(memory_key, 900, json.dumps(memory_text))
+
             except Exception as e:
                 response = f"Error: {str(e)}"
             requests.post(response_url, json={
@@ -139,6 +170,7 @@ def embed_file():
         if not file or not table_name or not schema:
             return jsonify({"error": "Missing file, table_name, or schema"}), 400
 
+
         full_table_name = f"{schema}.{table_name}"
 
         try:
@@ -155,6 +187,23 @@ def embed_file():
                 "status": "error",
                 "message": f"❌ Embedding failed: {str(e)}"
             }), 500
+    #full_table_name = f"{schema}.{table_name}"
+
+    try:
+        temp_path = f"/tmp/{file.filename}"
+        file.save(temp_path)
+        embed_and_store(temp_path, table_name, schema)
+        os.remove(temp_path)
+        return jsonify({
+            "status": "success",
+            "message": f"✅ File embedded into `{table_name}`."
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"❌ Embedding failed: {str(e)}"
+        }), 500
+
     
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
@@ -163,9 +212,10 @@ def slack_commands():
     text = request.form.get("text", "").strip()
 
     if command == "/setteam":
-        team = text.lower()
+        team = text.strip().lower()
+        create_schema_if_not_exists(team)
         update_user_team(user_id, team)
-        return jsonify({"text": f"Your team has been set to `{team}`."})
+        return jsonify({"text": f"✅ Your team has been set to `{team}` and schema created (if needed)."})
     
     if command == "/unsetteam":
         conn = sqlite3.connect("user_team.db")
@@ -175,7 +225,6 @@ def slack_commands():
         conn.close()
         return jsonify({"text": "✅ Your team assignment has been removed."})
 
-    
 def update_user_team(user_id, team):
     conn = sqlite3.connect("user_team.db")
     cur = conn.cursor()

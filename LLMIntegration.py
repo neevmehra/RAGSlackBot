@@ -1,4 +1,4 @@
-import os, sys, array, json, re, time, sqlite3
+import os, sys, array, json, re, time, sqlite3, PyPDF2
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
@@ -39,6 +39,7 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 
 # ================== FILE INGESTION + CHUNKING ==================
 def embed_and_store(file_path, table_name, schema):
+
     # Wrap the entire function in a span
     with tracer.start_as_current_span("embed_and_store") as span:
         # Add attributes to track what we're processing
@@ -49,6 +50,68 @@ def embed_and_store(file_path, table_name, schema):
         span.set_attribute("table_name", table_name)
         # tracks what kind of file is being processed 
         span.set_attribute("file_type", "json" if file_path.endswith('.json') else "other")
+
+    encoder = SentenceTransformer('all-MiniLM-L12-v2')
+    docs = []
+
+    if file_path.endswith('.json'):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            try:
+                # Handle single objects and arrays
+                data = json.load(f)
+                tickets = [data] if isinstance(data, dict) else data
+
+                if not tickets:
+                    return {"error": "No tickets found in the JSON file."}
+                
+            except json.JSONDecodeError:
+                return {"error": "Invalid JSON format"}
+        
+        for ticket in tickets:
+            # Build comprehensive chunk with all relevant fields
+            doc_text = "\n".join([
+                f"SR: {ticket.get('sr_number', 'N/A')}",
+                f"Ticket ID: {ticket.get('ticket_id', 'N/A')}",
+                f"Status: {ticket.get('status', 'N/A')}",
+                f"Priority: {ticket.get('priority', 'N/A')}",
+                f"Product: {ticket.get('product', 'N/A')}",
+                f"Summary: {ticket.get('summary', 'N/A')}",
+                f"Description: {ticket.get('description', 'N/A')}",
+                f"Resolution: {ticket.get('resolution_description', 'N/A')}",
+                f"Root Cause: {ticket.get('root_cause', 'N/A')}",
+                f"Customer: {ticket.get('customer_account', 'N/A')}"
+            ])
+            docs.append({"text": doc_text})
+
+    elif file_path.endswith('.pdf'):
+            with open(file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                text = ""
+                for page in pdf_reader.pages:
+                    page_text = page.extract_text() or ""
+                    text += page_text + "\n"
+
+                    #lets chunkc!
+                    paragraphs = [long.strip() for long in text.split('\n')
+                    if long.strip()]
+                    for idx, paragraph in enumerate(paragraphs):
+                        if len(paragraph) > 50:
+                            docs.append({
+                                "text": f"PDF Content (Page {idx + 1}): {paragraph}",
+                                "source": f"PDF_{os.path.basename (file_path)}" })  ###end of the pdf extraction
+                            
+    else:
+        return {"error": "Unsupported file type. Only .json and .pdf are supported."}
+
+    
+    # Existing embedding and DB storage logic below
+    data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
+    texts = [row['vector_source'] for row in data]
+    embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
+    
+    for row, embedding in zip(data, embeddings):
+        row['vector'] = array.array("f", embedding)
+
 
         try:   
             encoder = SentenceTransformer('all-MiniLM-L12-v2')
@@ -106,11 +169,21 @@ def embed_and_store(file_path, table_name, schema):
                     prepared_data = [(row['id'], json.dumps(row['payload']), row['vector']) for row in data]
                     cursor.executemany(
                         f"INSERT INTO {schema}.{table_name} (id, payload, vector) VALUES (:1, :2, :3)",
-                        prepared_data
+                        prepared_data)
+
+            if not exists:
+                print("Creating table with:", schema, table_name)
+                cursor.execute(f"""
+                    CREATE TABLE {schema}.{table_name} (
+                        id NUMBER PRIMARY KEY,
+                        payload CLOB,
+                        vector VECTOR
                     )
-                    connection.commit()
-                    span.set_attribute("records_inserted", len(prepared_data))
-                    span.set_status(trace.Status(trace.StatusCode.OK))
+                """) 
+                
+                connection.commit()
+                span.set_attribute("records_inserted", len(prepared_data))
+                span.set_status(trace.Status(trace.StatusCode.OK))
 
         except Exception as e: 
             span.record_exception(e)
@@ -169,6 +242,7 @@ def vector_search(user_query, schema):
             raise 
         
 def generate_answer(user_query, retrieved_docs):
+
     with tracer.start_as_current_span("generate_answer") as span: 
         span.set_attribute("query", user_query)
         #relevant documents in search 
@@ -176,6 +250,8 @@ def generate_answer(user_query, retrieved_docs):
         #which model is being used 
         span.set_attribute("model_id", model_id)
 
+    context = "\n==========\n".join(retrieved_docs)
+   
     try: 
         context = "\n==========\n".join(retrieved_docs)
 
@@ -223,6 +299,28 @@ def generate_answer(user_query, retrieved_docs):
         span.record_exception(e)
         span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
         raise 
+
+# ================== SCHEMA MANIPULATION ==================
+def create_schema_if_not_exists(schema_name):
+    admin_user = os.getenv("DB_USER")
+    admin_pass = os.getenv("DB_PASS")
+    dsn = os.getenv("DB_DSN")
+
+    schema_name = schema_name.upper()
+    password = "TempStrongPass123"  # You could randomize this or store securely
+
+    with oracledb.connect(user=admin_user, password=admin_pass, dsn=dsn) as conn:
+        with conn.cursor() as cur:
+            # Check if schema (user) already exists
+            cur.execute("SELECT COUNT(*) FROM dba_users WHERE username = :name", {"name": schema_name})
+            exists = cur.fetchone()[0] > 0
+
+            if not exists:
+                cur.execute(f"CREATE USER {schema_name} IDENTIFIED BY {password}")
+                cur.execute(f"GRANT CONNECT, RESOURCE TO {schema_name}")
+                cur.execute(f"ALTER USER {schema_name} DEFAULT TABLESPACE users TEMPORARY TABLESPACE temp")
+                cur.execute(f"ALTER USER {schema_name} QUOTA UNLIMITED ON data")
+                conn.commit()
 
 # ================== ENTRY POINT ==================
 if __name__ == "__main__":
