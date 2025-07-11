@@ -76,7 +76,6 @@ def embed_and_store(file_path, table_name, schema):
                     page_text = page.extract_text() or ""
                     text += page_text + "\n"
 
-                    #lets chunkc!
                     paragraphs = [long.strip() for long in text.split('\n')
                     if long.strip()]
                     for idx, paragraph in enumerate(paragraphs):
@@ -222,7 +221,8 @@ def generate_answer(user_query, retrieved_docs):
     )
 
     chat_response = generative_ai_inference_client.chat(chat_detail)
-       # Apply post-processing filter
+    
+    # Apply post-processing filter
     raw_response = chat_response.data.chat_response.text
     filtered_response = filter_support_language(raw_response)
     
@@ -235,7 +235,7 @@ def create_schema_if_not_exists(schema_name):
     dsn = os.getenv("DB_DSN")
 
     schema_name = schema_name.upper()
-    password = "TempStrongPass123"  # You could randomize this or store securely
+    password = "TempStrongPass123"  # Randomize this or store securely
 
     with oracledb.connect(user=admin_user, password=admin_pass, dsn=dsn) as conn:
         with conn.cursor() as cur:

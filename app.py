@@ -1,14 +1,9 @@
-import threading
-import requests
-import os
-import re
-import redis
-import json
+# IMPORTS
+import threading, requests, os, re, redis, json, sqlite3
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
-import sqlite3
 
-# Connect to local Redis instance
+# Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__)
@@ -227,7 +222,6 @@ def get_schema_for_user(user_id):
     conn.close()
     return row[0] if row else None
 
-# Rest of the code remains unchanged
 def download_slack_file(file_id):
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
     file_info = requests.get(
