@@ -267,6 +267,7 @@ def generate_answer(user_query, retrieved_docs):
             f"- Explaining what worked in past resolutions\n"
             f"- Providing actionable troubleshooting steps based on successful tickets\n"
             f"- Including resolution timeframes and root causes from the ticket data\n"
+            f"- Add a separate citations section for the tickets you used\n"
         )
     
         span.set_attribute("prompt_length", len(user_prompt))
