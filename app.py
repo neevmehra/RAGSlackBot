@@ -2,7 +2,6 @@
 import threading, requests, os, re, redis, json, sqlite3
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
-import sqlite3
 from telemetry import setup_telemetry 
 from opentelemetry import trace
 
