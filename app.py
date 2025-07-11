@@ -121,10 +121,13 @@ def slack_events():
                 # Fetch previous memory if any
                 memory_key = f"context:{user_id}:{channel_id}"
                 prior_memory = redis_client.get(memory_key)
-                memory_text = memory_text[-7:] # Test this out, but if too bloated replace with memory_text[-5:]
 
                 if prior_memory:
                     memory_text = json.loads(prior_memory)
+                else:
+                    memory_text = []
+
+                memory_text = memory_text[-7:]  # Trim after assigning
 
                 # Combine vector search with short-term memory
                 docs = vector_search(user_input, schema)
