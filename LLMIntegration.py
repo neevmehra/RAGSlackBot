@@ -196,13 +196,14 @@ def generate_answer(user_query, retrieved_docs):
         f"User Question: {user_query}\n\n"
         f"You are helping a support engineer troubleshoot a customer issue using historical ticket data. "
         f"Never suggest escalating to or contacting support — the engineer reading this IS support. "
-        f"Answer the question ONLY with technical solutions, past ticket examples, root causes, and known resolutions. "
+        f"Answer the question ONLY with technical solutions, root causes, and known resolutions. "
         f"If no resolution is available, say 'No known resolution found in ticket history. Consider further investigation.'\n"
         f"Answer their question by:\n"
-        f"- Citing specific ticket IDs (e.g., TECH-8926) when referencing similar cases\n"
+        f"- Citing specific ticket IDs (e.g., TECH-8926) when referencing similar cases, but create a separate citations section at the end of the message\n"
         f"- Explaining what worked in past resolutions\n"
         f"- Providing actionable troubleshooting steps based on successful tickets\n"
         f"- Including resolution timeframes and root causes from the ticket data\n"
+        f"- If a user asks a question that is not technical/information that is not directly in the support request, then you may respond appropriately"
 
     )
 
