@@ -5,55 +5,59 @@ import re
 from flask import Flask, request, jsonify
 from LLMIntegration import vector_search, generate_answer, embed_and_store
 import sqlite3
+from telemetry import setup_telemetry 
+from opentelemetry import trace
 
 app = Flask(__name__)
-
+tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 file_cache = {}
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
-    # Initialize data to None
-    data = None
-    
-    # Handle JSON requests first
-    if request.is_json:
-        data = request.get_json()
-    
-    # Process Events API payloads
-    if data:
-        # URL verification challenge
-        if "challenge" in data:
-            return jsonify({"challenge": data["challenge"]})
+
+    with tracer.start_as_current_span("slack_events_handler"):
+        #Initialize data to None
+        data = None
         
-        # Handle file_shared event
-        if data.get("event", {}).get("type") == "file_shared":
-            event = data["event"]
-            file_id = event["file_id"]
-            user_id = event["user_id"]
-            channel_id = event.get("channel_id")
-            if channel_id:
-                file_cache[(user_id, channel_id)] = {
-                    "file_id": file_id,
-                    "timestamp": event["event_ts"]
-                }
-            return jsonify({}), 200
+        # Handle JSON requests first
+        if request.is_json:
+            data = request.get_json()
         
-        # Handle message event with file_share subtype
-        if (data.get("event", {}).get("type") == "message" and 
-            data.get("event", {}).get("subtype") == "file_share"):
-            event = data["event"]
-            files = event.get("files", [])
-            if files:
-                file_id = files[0]["id"]
-                user_id = event.get("user")
-                channel_id = event.get("channel")
-                if user_id and channel_id:
+        # Process Events API payloads
+        if data:
+            # URL verification challenge
+            if "challenge" in data:
+                return jsonify({"challenge": data["challenge"]})
+            
+            # Handle file_shared event
+            if data.get("event", {}).get("type") == "file_shared":
+                event = data["event"]
+                file_id = event["file_id"]
+                user_id = event["user_id"]
+                channel_id = event.get("channel_id")
+                if channel_id:
                     file_cache[(user_id, channel_id)] = {
                         "file_id": file_id,
-                        "timestamp": event["ts"]
+                        "timestamp": event["event_ts"]
                     }
-            return jsonify({}), 200
+                return jsonify({}), 200
+            
+            # Handle message event with file_share subtype
+            if (data.get("event", {}).get("type") == "message" and 
+                data.get("event", {}).get("subtype") == "file_share"):
+                event = data["event"]
+                files = event.get("files", [])
+                if files:
+                    file_id = files[0]["id"]
+                    user_id = event.get("user")
+                    channel_id = event.get("channel")
+                    if user_id and channel_id:
+                        file_cache[(user_id, channel_id)] = {
+                            "file_id": file_id,
+                            "timestamp": event["ts"]
+                        }
+                return jsonify({}), 200
 
     # Handle Slash Commands (form-encoded)
     user_input = request.form.get("text", "").strip()
@@ -127,29 +131,30 @@ def slack_events():
 
 @app.route("/embed", methods=["POST"])
 def embed_file():
-    schema = request.form.get("schema")  # Use schema directly now (from HTML)
-    table_name = request.form.get("table_name")
-    file = request.files.get("file")
+    with tracer.start_as_current_span("embed_file_handler"):
+        schema = request.form.get("schema")  # Use schema directly now (from HTML)
+        table_name = request.form.get("table_name")
+        file = request.files.get("file")
 
-    if not file or not table_name or not schema:
-        return jsonify({"error": "Missing file, table_name, or schema"}), 400
+        if not file or not table_name or not schema:
+            return jsonify({"error": "Missing file, table_name, or schema"}), 400
 
-    full_table_name = f"{schema}.{table_name}"
+        full_table_name = f"{schema}.{table_name}"
 
-    try:
-        temp_path = f"/tmp/{file.filename}"
-        file.save(temp_path)
-        embed_and_store(temp_path, full_table_name, schema)
-        os.remove(temp_path)
-        return jsonify({
-            "status": "success",
-            "message": f"✅ File embedded into `{full_table_name}`."
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"❌ Embedding failed: {str(e)}"
-        }), 500
+        try:
+            temp_path = f"/tmp/{file.filename}"
+            file.save(temp_path)
+            embed_and_store(temp_path, full_table_name, schema)
+            os.remove(temp_path)
+            return jsonify({
+                "status": "success",
+                "message": f"✅ File embedded into `{full_table_name}`."
+            })
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": f"❌ Embedding failed: {str(e)}"
+            }), 500
     
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
