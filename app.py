@@ -1,6 +1,7 @@
 # IMPORTS
 import threading, requests, os, re, redis, json, sqlite3
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 from telemetry import setup_telemetry 
 from opentelemetry import trace
@@ -9,6 +10,7 @@ from opentelemetry import trace
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__)
+CORS(app)
 tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 file_cache = {}
