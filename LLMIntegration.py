@@ -130,7 +130,7 @@ def embed_and_store(file_path, table_name, schema):
                             CREATE TABLE {qualified_table} (
                                 id NUMBER PRIMARY KEY,
                                 payload CLOB,
-                                vector VECTOR(384)
+                                vector VECTOR
                             )
                         """)
 
