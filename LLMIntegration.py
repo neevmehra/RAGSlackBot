@@ -52,11 +52,24 @@ def embed_and_store(file_path, table_name, schema):
             with open(file_path, 'r', encoding='utf-8') as f:
                 try:
                     data = json.load(f)
-                    tickets = [data] if isinstance(data, dict) else data
-                    if not tickets:
-                        raise ValueError("No tickets found in JSON.")
+
+                    # === Flatten and normalize ticket structure ===
+                    if isinstance(data, list):
+                        if all(isinstance(x, list) for x in data):
+                            tickets = [item for sublist in data for item in sublist]
+                        else:
+                            tickets = data
+                    elif isinstance(data, dict):
+                        if "tickets" in data and isinstance(data["tickets"], list):
+                            tickets = data["tickets"]
+                        else:
+                            tickets = [data]
+                    else:
+                        raise ValueError("Unsupported JSON format")
+
                 except json.JSONDecodeError:
                     raise ValueError("Invalid JSON format")
+
 
             for ticket in tickets:
                 doc_text = "\n".join([
