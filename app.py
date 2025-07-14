@@ -166,16 +166,16 @@ def embed_file():
             return jsonify({"error": "Missing file, table_name, or schema"}), 400
 
 
-        full_table_name = f"{schema}.{table_name}"
+        #full_table_name = f"{schema}.{table_name}"
 
         try:
             temp_path = f"/tmp/{file.filename}"
             file.save(temp_path)
-            embed_and_store(temp_path, full_table_name, schema)
+            embed_and_store(temp_path, table_name, schema)
             os.remove(temp_path)
             return jsonify({
                 "status": "success",
-                "message": f"✅ File embedded into `{full_table_name}`."
+                "message": f"✅ File embedded into `{table_name}`."
             })
         except Exception as e:
             return jsonify({
