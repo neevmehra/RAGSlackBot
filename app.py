@@ -157,12 +157,14 @@ def slack_events():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    data = request.json
+    data = request.json or {}
     question = data.get("question")
-    schema = data.get("schema", "TeamA")  # default schema
-    
+    schema = data.get("schema")
+
     if not question:
         return jsonify({"error": "No question provided"}), 400
+    if not schema:
+        return jsonify({"error": "No schema provided"}), 400
 
     try:
         docs = vector_search(question, schema)

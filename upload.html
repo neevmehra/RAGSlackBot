@@ -124,7 +124,7 @@
   <h1>OracleBot Portal</h1>
 
   <form id="upload-form" action="http://170.9.235.68:5000/embed" method="post" enctype="multipart/form-data" target="hidden_iframe">
-    <label for="file">Select JSON file:</label>
+    <label for="file">Select file:</label>
     <input type="file" name="file" id="file" accept=".json" required />
 
     <label for="schema">Select Team (Schema):</label>
@@ -187,7 +187,13 @@
   // Send chat message to your backend /ask endpoint
   async function sendMessage() {
     const question = chatInput.value.trim();
+    const schema = document.getElementById('schema').value;
+
     if (!question) return;
+    if (!schema) {
+      alert("Please select a schema before asking a question.");
+      return;
+    }
 
     addMessage(question, 'user');
     chatInput.value = '';
@@ -198,7 +204,7 @@
       const response = await fetch('http://170.9.235.68:5000/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, schema: document.getElementById('schema').value || 'TeamA' }),
+        body: JSON.stringify({ question, schema }),
       });
       const data = await response.json();
       if (data.answer) {
