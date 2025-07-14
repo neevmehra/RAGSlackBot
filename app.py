@@ -155,6 +155,22 @@ def slack_events():
     
     return jsonify({"error": "Unsupported command"}), 400
 
+@app.route("/ask", methods=["POST"])
+def ask():
+    data = request.json
+    question = data.get("question")
+    schema = data.get("schema", "TeamA")  # default schema
+    
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+
+    try:
+        docs = vector_search(question, schema)
+        response = generate_answer(question, docs)
+        return jsonify({"answer": response})
+    except Exception as e:
+        return jsonify({"answer": f"Error: {str(e)}"})
+
 @app.route("/embed", methods=["POST"])
 def embed_file():
     with tracer.start_as_current_span("embed_file_handler"):
