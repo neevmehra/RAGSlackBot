@@ -216,18 +216,49 @@ def generate_answer(user_query, retrieved_docs):
 
         span.set_attribute("context_length", len(context))
         user_prompt = (
-            f"Context:\n{context}\n\n"
-            f"User Question: {user_query}\n\n"
             f"You are helping a support engineer troubleshoot a customer issue using historical ticket data. "
             f"Never suggest escalating to or contacting support — the engineer reading this IS support. "
-            f"Answer the question ONLY with technical solutions, past ticket examples, root causes, and known resolutions. "
+            f"Answer with technical solutions, past ticket examples, root causes, and known resolutions.\n\n"
+            
+            f"Examples of expected responses:\n\n"
+            
+            f"Q: How would I resolve an issue pertaining to database misconfiguration?\n"
+            f"A: Here's the step-by-step resolution for database misconfiguration issues:\n"
+            f"1. **Check connection settings** - Verify hostname, port, database name, and credentials in your config file for typos or incorrect values.\n"
+            f"2. **Test server connectivity** - Use `telnet <hostname> <port>` to confirm network access and ensure the database service is running.\n"
+            f"3. **Validate authentication** - Confirm user credentials have proper permissions and the account isn't locked or expired.\n"
+            f"4. **Update and restart** - Correct any misconfigurations in your database config file and restart the application service.\n"
+            f"5. **Verify resolution** - Test the database connection and run a simple query to ensure full functionality.\n"
+            f"**Source:** Ticket #DB-2847 - Database Connection Failure Resolution\n"
+            f"**Link:** https://your-ticketing-system.com/ticket/DB-2847\n\n"
+            
+            f"Q: The API is returning 500 errors intermittently.\n"
+            f"A: Here's the step-by-step resolution for intermittent API 500 errors:\n"
+            f"1. **Check server logs** - Review application and web server error logs to identify the root cause of the 500 errors.\n"
+            f"2. **Monitor resource usage** - Verify CPU, memory, and database connections aren't hitting limits during error periods.\n"
+            f"3. **Test database connectivity** - Ensure database connections are stable and not timing out during high load.\n"
+            f"4. **Review recent deployments** - Check if any recent code changes correlate with the error pattern.\n"
+            f"5. **Implement error handling** - Add retry logic and improve error logging to handle transient issues gracefully.\n"
+            f"**Source:** Ticket #API-5672 - Intermittent 500 Error Investigation\n"
+            f"**Link:** https://your-ticketing-system.com/ticket/API-5672\n\n"
+            
+            f"Q: Users can't log in to the application.\n"
+            f"A: Here's the step-by-step resolution for login issues:\n"
+            f"1. **Verify authentication service** - Check if the authentication server is running and responding to requests.\n"
+            f"2. **Test database connections** - Ensure the user database is accessible and user table queries are working.\n"
+            f"3. **Check session management** - Verify session storage (Redis/database) is functioning and not full.\n"
+            f"4. **Review security settings** - Confirm firewall rules, rate limiting, and account lockout policies aren't blocking users.\n"
+            f"5. **Clear cache and test** - Clear application cache, restart services, and test login with known good credentials.\n"
+            f"**Source:** Ticket #AUTH-9134 - User Authentication Failure Resolution\n"
+            f"**Link:** https://your-ticketing-system.com/ticket/AUTH-9134\n\n"
+            
+            f"Context from ticket history:\n{context}\n\n"
+            f"User Question: {user_query}\n\n"
+            f"Based on the examples above and the ticket history context, provide a structured response with:\n"
+            f"- Step-by-step technical resolution\n"
+            f"- Source ticket information with links\n"
+            f"- No suggestions to contact support or escalate\n"
             f"If no resolution is available, say 'No known resolution found in ticket history. Consider further investigation.'\n"
-            f"Answer their question by:\n"
-            f"- Citing specific ticket IDs (e.g., TECH-8926) when referencing similar cases\n"
-            f"- Explaining what worked in past resolutions\n"
-            f"- Providing actionable troubleshooting steps based on successful tickets\n"
-            f"- Including resolution timeframes and root causes from the ticket data\n"
-            f"- Add a separate citations section for the tickets you used\n"
         )
     
         span.set_attribute("prompt_length", len(user_prompt))
