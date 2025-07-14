@@ -16,7 +16,7 @@ os.environ["TNS_ADMIN"] = os.path.join(BASE_DIR, "wallet")
 un = os.getenv("DB_USER")
 pw = os.getenv("DB_PASS")
 cs = os.getenv("DB_DSN")
-topK = 5
+topK = 3
 
 # ================== EMBEDDING MODEL ==================
 embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
