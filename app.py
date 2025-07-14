@@ -167,6 +167,7 @@ def embed_file():
 
 
         #full_table_name = f"{schema}.{table_name}"
+        #table_name = table_match.group(1)
 
         try:
             temp_path = f"/tmp/{file.filename}"
