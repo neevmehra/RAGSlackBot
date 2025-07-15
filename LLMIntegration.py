@@ -186,7 +186,12 @@ def vector_search(user_query, schema):
                         '''
                         for (info, score,) in cursor.execute(sql_retrieval, vector=vec):
                             info_str = info.read() if isinstance(info, oracledb.LOB) else info
-                            retrieved_docs.append((score, json.loads(info_str)["text"]))
+                            doc_text = json.loads(info_str)["text"]
+
+                            print(f"[DEBUG] Table: {table_name}, Score: {score:.4f}")
+                            print(f"Text: {doc_text[:200]}...\n")  # Only print a sample
+                            retrieved_docs.append((score, doc_text))
+
                         
                         # Increment counter for successfully searched tables
                      
