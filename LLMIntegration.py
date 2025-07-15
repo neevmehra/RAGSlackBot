@@ -163,6 +163,7 @@ def vector_search(user_query, schema):
         tables_searched = 0
     
         try: 
+            print("[DEBUG] vector_search() started.")
             embedding = list(embedding_model.encode(user_query))
             vec = array.array("f", embedding)
             retrieved_docs = []
@@ -177,6 +178,7 @@ def vector_search(user_query, schema):
 
                 for table_name in tables:
                     tables_searched += 1
+                    print(f"[DEBUG] Searching table: {table_name}")
                     try:
                         sql_retrieval = f'''
                             SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
@@ -185,6 +187,7 @@ def vector_search(user_query, schema):
                             FETCH APPROX FIRST {topK} ROWS ONLY
                         '''
                         for (info, score,) in cursor.execute(sql_retrieval, vector=vec):
+                            print(f"[DEBUG] Executing vector search in {table_name}")
                             info_str = info.read() if isinstance(info, oracledb.LOB) else info
                             doc_text = json.loads(info_str)["text"]
 
