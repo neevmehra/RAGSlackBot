@@ -176,7 +176,7 @@ def vector_search(user_query, schema):
                 for table_name in tables:
                     try:
                         sql_retrieval = f'''
-                            SELECT payload, VECTOR_DISTANCE(vector, :vector, EUCLIDEAN) as score 
+                            SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
                             FROM {schema}.{table_name}
                             ORDER BY score 
                             FETCH APPROX FIRST {topK} ROWS ONLY
