@@ -158,8 +158,10 @@ def vector_search(user_query, schema):
         span.set_attribute("query", user_query)
         #how many results are requested from the table 
         span.set_attribute("topK", topK)
+        
+        # Initialize tables_searched counter
+        tables_searched = 0
     
-
         try: 
             embedding = list(embedding_model.encode(user_query))
             vec = array.array("f", embedding)
@@ -184,6 +186,10 @@ def vector_search(user_query, schema):
                         for (info, score,) in cursor.execute(sql_retrieval, vector=vec):
                             info_str = info.read() if isinstance(info, oracledb.LOB) else info
                             retrieved_docs.append((score, json.loads(info_str)["text"]))
+                        
+                        # Increment counter for successfully searched tables
+                        tables_searched += 1
+                        
                     except Exception:
                         continue  # skip tables that don't match schema
 
@@ -191,6 +197,7 @@ def vector_search(user_query, schema):
             final_docs = [text for _, text in retrieved_docs[:topK]]
 
             span.set_attribute("documents_retrieved", len(final_docs))
+            span.set_attribute("tables_searched", tables_searched)
             span.set_status(trace.Status(trace.StatusCode.OK))
 
             return final_docs 
@@ -198,7 +205,7 @@ def vector_search(user_query, schema):
         except Exception as e: 
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e))) 
-            raise 
+            raise
         
 def generate_answer(user_query, retrieved_docs):
 
