@@ -180,22 +180,28 @@ def vector_search(user_query, schema):
                     tables_searched += 1
                     print(f"[DEBUG] Searching table: {table_name}")
                     try:
+                        print(f"[DEBUG] Attempting vector search in table: {table_name}")
                         sql_retrieval = f'''
                             SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
                             FROM {schema}.{table_name}
                             ORDER BY score 
                             FETCH APPROX FIRST {topK} ROWS ONLY
                         '''
-                        for (info, score,) in cursor.execute(sql_retrieval, vector=vec):
-                            print(f"[DEBUG] Executing vector search in {table_name}")
-                            info_str = info.read() if isinstance(info, oracledb.LOB) else info
-                            doc_text = json.loads(info_str)["text"]
-
-                            print(f"[DEBUG] Table: {table_name}, Score: {score:.4f}")
-                            print(f"Text: {doc_text[:200]}...\n")  # Only print a sample
-                            retrieved_docs.append((score, doc_text))
-
                         
+                        rows = list(cursor.execute(sql_retrieval, vector=vec))
+
+                        if not rows:
+                            print(f"[DEBUG] No rows returned from {table_name}")
+                            
+                        for (info, score,) in rows:
+                            info_str = info.read() if isinstance(info, oracledb.LOB) else info
+                            print(f"[DEBUG] Score from table {table_name}: {score}")
+                            retrieved_docs.append((score, json.loads(info_str)["text"]))
+
+                    except Exception as e:
+                        print(f"[WARNING] Skipping table {table_name}: {e}")
+                        continue
+
                         # Increment counter for successfully searched tables
                      
                         
