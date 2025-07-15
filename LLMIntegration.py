@@ -19,7 +19,7 @@ cs = os.getenv("DB_DSN")
 topK = 3
 
 # ================== EMBEDDING MODEL ==================
-embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
 
 # ================== OCI GENERATIVE AI SETUP ==================
 compartment_id = "ocid1.compartment.oc1..aaaaaaaaawkpra4vxusalnxjz3aztkizm7jnxis5docvbj2cssqau3a4xlaq"
