@@ -153,16 +153,12 @@ def embed_and_store(file_path, table_name, schema):
 # ================== VECTOR SEARCH + GENERATE ==================
 def vector_search(user_query, schema):
     with tracer.start_as_current_span("vector_search") as span:
-        #Add attributes to track what we're processing
-        #keeping track of question asked from the user 
         span.set_attribute("query", user_query)
-        #how many results are requested from the table 
         span.set_attribute("topK", topK)
-        
-        # Initialize tables_searched counter
+
         tables_searched = 0
-    
-        try: 
+
+        try:
             print("[DEBUG] vector_search() started.")
             embedding = list(embedding_model.encode(user_query))
             vec = array.array("f", embedding)
@@ -170,43 +166,37 @@ def vector_search(user_query, schema):
 
             with oracledb.connect(user=un, password=pw, dsn=cs) as connection:
                 with connection.cursor() as cursor:
+                    # Fetch tables once
                     cursor.execute("""
                         SELECT table_name FROM all_tables
                         WHERE owner = :owner AND table_name NOT LIKE 'BIN$%'
                     """, {'owner': schema.upper()})
                     tables = [row[0] for row in cursor.fetchall()]
 
-                for table_name in tables:
-                    tables_searched += 1
-                    print(f"[DEBUG] Searching table: {table_name}")
-                    try:
-                        print(f"[DEBUG] Attempting vector search in table: {table_name}")
-                        sql_retrieval = f'''
-                            SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
-                            FROM {schema}.{table_name}
-                            ORDER BY score 
-                            FETCH APPROX FIRST {topK} ROWS ONLY
-                        '''
-                        
-                        rows = list(cursor.execute(sql_retrieval, vector=vec))
+                    for table_name in tables:
+                        tables_searched += 1
+                        print(f"[DEBUG] Searching table: {table_name}")
+                        try:
+                            print(f"[DEBUG] Attempting vector search in table: {table_name}")
+                            sql_retrieval = f'''
+                                SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
+                                FROM {schema}.{table_name}
+                                ORDER BY score 
+                                FETCH APPROX FIRST {topK} ROWS ONLY
+                            '''
+                            rows = list(cursor.execute(sql_retrieval, vector=vec))
 
-                        if not rows:
-                            print(f"[DEBUG] No rows returned from {table_name}")
-                            
-                        for (info, score,) in rows:
-                            info_str = info.read() if isinstance(info, oracledb.LOB) else info
-                            print(f"[DEBUG] Score from table {table_name}: {score}")
-                            retrieved_docs.append((score, json.loads(info_str)["text"]))
+                            if not rows:
+                                print(f"[DEBUG] No rows returned from {table_name}")
 
-                    except Exception as e:
-                        print(f"[WARNING] Skipping table {table_name}: {e}")
-                        continue
+                            for (info, score) in rows:
+                                info_str = info.read() if isinstance(info, oracledb.LOB) else info
+                                print(f"[DEBUG] Score from table {table_name}: {score:.4f}")
+                                retrieved_docs.append((score, json.loads(info_str)["text"]))
 
-                        # Increment counter for successfully searched tables
-                     
-                        
-                    except Exception:
-                        continue  # skip tables that don't match schema
+                        except Exception as e:
+                            print(f"[WARNING] Skipping table {table_name}: {e}")
+                            continue
 
             retrieved_docs.sort(key=lambda x: x[0])
             final_docs = [text for _, text in retrieved_docs[:topK]]
@@ -215,11 +205,11 @@ def vector_search(user_query, schema):
             span.set_attribute("tables_searched", tables_searched)
             span.set_status(trace.Status(trace.StatusCode.OK))
 
-            return final_docs 
-        
-        except Exception as e: 
+            return final_docs
+
+        except Exception as e:
             span.record_exception(e)
-            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e))) 
+            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
         
 def generate_answer(user_query, retrieved_docs):
