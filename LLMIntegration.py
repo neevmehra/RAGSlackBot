@@ -176,6 +176,7 @@ def vector_search(user_query, schema):
                     tables = [row[0] for row in cursor.fetchall()]
 
                 for table_name in tables:
+                    tables_searched += 1
                     try:
                         sql_retrieval = f'''
                             SELECT payload, VECTOR_DISTANCE(vector, :vector, EUCLIDEAN) as score 
@@ -188,7 +189,7 @@ def vector_search(user_query, schema):
                             retrieved_docs.append((score, json.loads(info_str)["text"]))
                         
                         # Increment counter for successfully searched tables
-                        tables_searched += 1
+                     
                         
                     except Exception:
                         continue  # skip tables that don't match schema
