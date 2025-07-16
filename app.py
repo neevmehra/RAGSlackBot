@@ -107,6 +107,8 @@ def slack_events():
 
     elif command == "/oraclebot":
         schema = get_schema_for_user(user_id)
+        thread_ts = request.form.get("thread_ts") or request.form.get("message_ts")
+        print("Form Data:", request.form.to_dict())
 
         if not schema:
             return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
@@ -117,7 +119,7 @@ def slack_events():
                 "text": "Please enter a question."
             })
         
-        def process_query_and_respond():
+        def process_query_and_respond(thread_ts):
             tracer = trace.get_tracer(__name__)
             with tracer.start_as_current_span("oraclebot_response_latency") as span:
                 start_time = time.perf_counter()
@@ -150,7 +152,8 @@ def slack_events():
 
                 requests.post(response_url, json={
                     "response_type": "in_channel",
-                    "text": response
+                    "text": response,
+                    "thread_ts": thread_ts
                 })
 
                 end_time = time.perf_counter()
@@ -158,7 +161,7 @@ def slack_events():
                 span.set_attribute("oraclebot.latency_ms", latency_ms)
                 print(f"[Telemetry] OracleBot Response Latency: {latency_ms:.2f} ms")
         
-        threading.Thread(target=process_query_and_respond).start()
+        threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
         return jsonify({
             "response_type": "ephemeral",
             "text": "Working on it...⏳"
