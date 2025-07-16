@@ -15,6 +15,8 @@ app = Flask(__name__)
 CORS(app)
 tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+print("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN)
+
 file_cache = {}
 
 @app.route("/slack/events", methods=["POST"])
