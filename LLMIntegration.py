@@ -83,6 +83,7 @@ def embed_and_store(file_path, table_name, schema):
                     f"Resolution: {ticket.get('resolution_description', 'N/A')}",
                     f"Root Cause: {ticket.get('root_cause', 'N/A')}",
                     f"Customer: {ticket.get('customer_account', 'N/A')}"
+                    f"Ticket URL: {ticket.get('ticket_url', 'N/A')}"
                 ])
                 docs.append({"text": doc_text})
 

@@ -5,7 +5,7 @@ from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 from telemetry import setup_telemetry 
 from opentelemetry import trace
-
+import time 
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
@@ -118,36 +118,45 @@ def slack_events():
             })
         
         def process_query_and_respond():
-            try:
-                # Fetch previous memory if any
-                memory_key = f"context:{user_id}:{channel_id}"
-                prior_memory = redis_client.get(memory_key)
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("oraclebot_response_latency") as span:
+                start_time = time.perf_counter()
+                try:
+                    # Fetch previous memory if any
+                    memory_key = f"context:{user_id}:{channel_id}"
+                    prior_memory = redis_client.get(memory_key)
 
-                if prior_memory:
-                    memory_text = json.loads(prior_memory)
-                else:
-                    memory_text = []
+                    if prior_memory:
+                        memory_text = json.loads(prior_memory)
+                    else:
+                        memory_text = []
 
-                memory_text = memory_text[-7:]  # Trim after assigning
+                    memory_text = memory_text[-7:]  # Trim after assigning
 
-                # Combine vector search with short-term memory
-                docs = vector_search(user_input, schema)
-                all_context = memory_text + docs
-                response = generate_answer(user_input, all_context)
+                    # Combine vector search with short-term memory
+                    docs = vector_search(user_input, schema)
+                    all_context = memory_text + docs
+                    response = generate_answer(user_input, all_context)
 
-                # Update the memory with this latest turn
-                new_entry = f"User: {user_input}\nBot: {response}"
-                memory_text.append(new_entry)
+                    # Update the memory with this latest turn
+                    new_entry = f"User: {user_input}\nBot: {response}"
+                    memory_text.append(new_entry)
 
-                # Save back to Redis with TTL = 15 mins (900 seconds)
-                redis_client.setex(memory_key, 900, json.dumps(memory_text))
+                    # Save back to Redis with TTL = 15 mins (900 seconds)
+                    redis_client.setex(memory_key, 900, json.dumps(memory_text))
 
-            except Exception as e:
-                response = f"Error: {str(e)}"
-            requests.post(response_url, json={
-                "response_type": "in_channel",
-                "text": response
-            })
+                except Exception as e:
+                    response = f"Error: {str(e)}"
+
+                requests.post(response_url, json={
+                    "response_type": "in_channel",
+                    "text": response
+                })
+
+                end_time = time.perf_counter()
+                latency_ms = (end_time - start_time) * 1000  # convert to milliseconds
+                span.set_attribute("oraclebot.latency_ms", latency_ms)
+                print(f"[Telemetry] OracleBot Response Latency: {latency_ms:.2f} ms")
         
         threading.Thread(target=process_query_and_respond).start()
         return jsonify({
