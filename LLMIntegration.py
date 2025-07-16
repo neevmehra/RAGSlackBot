@@ -1,4 +1,4 @@
-import os, sys, array, json, re, time, sqlite3, PyPDF2
+import os, sys, array, json, re, time, sqlite3, pymupdf, fitz
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
@@ -38,6 +38,39 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 )
 
 # ================== FILE INGESTION + CHUNKING ==================
+
+def chunk_text_by_tokens(text, max_tokens=300, overlap=50):
+    words = text.split()
+    chunks = []
+    i = 0
+    while i < len(words):
+        chunk_words = words[i:i + max_tokens]
+        if len(chunk_words) < 10:
+            break  # skip trivial fragments
+        chunk = " ".join(chunk_words)
+        chunks.append(chunk)
+        i += max_tokens - overlap  # move with overlap to preserve context
+    return chunks
+
+def compress_pdf(input_path):
+    
+        doc = fitz.open(input_path)
+        for page in doc:
+            page.clean_contents()  ### remove unused elements
+        compressed_path = input_path.replace(".pdf", "_compressed.pdf")
+        doc.save(compressed_path, garbage=4, deflate=True)
+        doc.close()
+        return compressed_path
+
+
+'''def parse_pdf(file_path):
+    doc = fitz.open(file_path)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    doc.close()
+    return text'''
+
 def embed_and_store(file_path, table_name, schema):
     with tracer.start_as_current_span("embed_and_store") as span:
         span.set_attribute("file_path", file_path)
@@ -88,23 +121,20 @@ def embed_and_store(file_path, table_name, schema):
                 docs.append({"text": doc_text})
 
         elif file_path.endswith('.pdf'):
-            with open(file_path, 'rb') as f:
-                pdf_reader = PyPDF2.PdfReader(f)
-                text = ""
-                for page in pdf_reader.pages:
-                    page_text = page.extract_text() or ""
-                    text += page_text + "\n"
-
-                paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
-                for idx, paragraph in enumerate(paragraphs):
-                    if len(paragraph) > 50:
+            file_path = compress_pdf(file_path) 
+            doc = fitz.open(file_path)
+            for page_num in range(len(doc)):
+                text = doc[page_num].get_text()
+                paragraphs = [p.strip() for p in text.split('\n') if len(p.strip()) > 50]
+                for i, paragraph in enumerate(paragraphs):
+                    chunks = chunk_text_by_tokens(paragraph)
+                    for j, chunk in enumerate(chunks):
                         docs.append({
-                            "text": f"PDF Content (Page {idx + 1}): {paragraph}",
-                            "source": f"PDF_{os.path.basename(file_path)}"
-                        })
-
-        else:
-            raise ValueError("Unsupported file type. Only .json and .pdf are supported.")
+                        "text": chunk,
+                        "chunk_id": f"pdf_page{page_num+1}_para{i+1}_chunk{j+1}",
+                        "source": f"PDF_{os.path.basename(file_path)}"
+                })
+        doc.close() ###end of the pdf extraction
 
         # =================== Embedding ====================
         data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
