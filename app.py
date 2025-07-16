@@ -10,8 +10,7 @@ import time
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path)
+load_dotenv()
 app = Flask(__name__)
 CORS(app)
 tracer = setup_telemetry(app)
