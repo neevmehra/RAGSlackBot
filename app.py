@@ -1,5 +1,6 @@
 # IMPORTS
 import threading, requests, os, re, redis, json, sqlite3
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
@@ -9,6 +10,7 @@ import time
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
+load_dotenv()
 app = Flask(__name__)
 CORS(app)
 tracer = setup_telemetry(app)
