@@ -1,6 +1,5 @@
 # IMPORTS
 import threading, requests, os, re, redis, json, sqlite3
-from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
@@ -10,13 +9,10 @@ import time
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
-load_dotenv()
 app = Flask(__name__)
 CORS(app)
 tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-print("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN)
-
 file_cache = {}
 
 @app.route("/slack/events", methods=["POST"])
@@ -82,7 +78,7 @@ def slack_events():
         if not table_match:
             return jsonify({
                 "response_type": "ephemeral",
-                "text": "Missing table_name parameter. Usage: `/oracleembed table_name=your_table`"
+                "text": "Missing table_name parameter. Usage: /oracleembed table_name=your_table"
             })
         
         table_name = f"{schema}.{table_match.group(1)}"
@@ -111,113 +107,67 @@ def slack_events():
 
     elif command == "/oraclebot":
         schema = get_schema_for_user(user_id)
-        user_input = request.form.get("text", "").strip()
+        thread_ts = request.form.get("thread_ts") or request.form.get("message_ts")
+        print("Form Data:", request.form.to_dict())
 
         if not schema:
-            return jsonify({"text": "You are not assigned to any team. Use /setteam."})
+            return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
 
-        if not user_input:
+        if not user_input or not response_url:
             return jsonify({
                 "response_type": "ephemeral",
                 "text": "Please enter a question."
             })
-
-        # Step 1: Post the user's question publicly with buttons
-        question_post = {
-            "channel": channel_id,
-            "text": f":question: <@{user_id}> asked:\n>*{user_input}*",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":question: *<@{user_id}> asked:*\n>{user_input}"
-                    }
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Ask a question"},
-                            "action_id": "ask_new_question"
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Set team"},
-                            "action_id": "set_team"
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Unset team"},
-                            "action_id": "unset_team"
-                        }
-                    ]
-                }
-            ]
-        }
-
-        question_response = requests.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={
-                "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-                "Content-Type": "application/json"
-            },
-            json=question_post
-        ).json()
-
-        if not question_response.get("ok"):
-            return jsonify({
-                "response_type": "ephemeral",
-                "text": f"Failed to post question: {question_response.get('error')}"
-            })
-
-        thread_ts = question_response.get("ts")
-
-        # Step 2: Process answer in a thread
-        def process_query_and_respond():
+        
+        def process_query_and_respond(thread_ts):
             tracer = trace.get_tracer(__name__)
             with tracer.start_as_current_span("oraclebot_response_latency") as span:
                 start_time = time.perf_counter()
                 try:
+                    # Fetch previous memory if any
                     memory_key = f"context:{user_id}:{channel_id}"
                     prior_memory = redis_client.get(memory_key)
 
-                    memory_text = json.loads(prior_memory) if prior_memory else []
-                    memory_text = memory_text[-7:]  # keep last 7 turns
+                    if prior_memory:
+                        memory_text = json.loads(prior_memory)
+                    else:
+                        memory_text = []
 
+                    memory_text = memory_text[-7:]  # Trim after assigning
+
+                    # Combine vector search with short-term memory
                     docs = vector_search(user_input, schema)
                     all_context = memory_text + docs
                     response = generate_answer(user_input, all_context)
 
-                    memory_text.append(f"User: {user_input}\nBot: {response}")
+                    # Update the memory with this latest turn
+                    new_entry = f"User: {user_input}\nBot: {response}"
+                    memory_text.append(new_entry)
+
+                    # Save back to Redis with TTL = 15 mins (900 seconds)
                     redis_client.setex(memory_key, 900, json.dumps(memory_text))
 
                 except Exception as e:
                     response = f"Error: {str(e)}"
 
-                requests.post(
-                    "https://slack.com/api/chat.postMessage",
-                    headers={
-                        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "channel": channel_id,
-                        "thread_ts": thread_ts,
-                        "text": response
-                    }
-                )
+                requests.post(response_url, json={
+                    "response_type": "in_channel",
+                    "text": response,
+                    "thread_ts": thread_ts
+                })
 
-                latency_ms = (time.perf_counter() - start_time) * 1000
+                end_time = time.perf_counter()
+                latency_ms = (end_time - start_time) * 1000  # convert to milliseconds
                 span.set_attribute("oraclebot.latency_ms", latency_ms)
-
-        threading.Thread(target=process_query_and_respond).start()
-
+                print(f"[Telemetry] OracleBot Response Latency: {latency_ms:.2f} ms")
+        
+        threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
         return jsonify({
             "response_type": "ephemeral",
             "text": "Working on it...⏳"
         })
+    
+    return jsonify({"error": "Unsupported command"}), 400
 
 @app.route("/ask", methods=["POST"])
 def ask():
@@ -258,7 +208,7 @@ def embed_file():
             os.remove(temp_path)
             return jsonify({
                 "status": "success",
-                "message": f"✅ File embedded into `{table_name}`."
+                "message": f"✅ File embedded into {table_name}."
             })
         except Exception as e:
             return jsonify({
@@ -274,7 +224,7 @@ def embed_file():
         os.remove(temp_path)
         return jsonify({
             "status": "success",
-            "message": f"✅ File embedded into `{table_name}`."
+            "message": f"✅ File embedded into {table_name}."
         })
     except Exception as e:
         return jsonify({
@@ -293,7 +243,7 @@ def slack_commands():
         team = text.strip().lower()
         create_schema_if_not_exists(team)
         update_user_team(user_id, team)
-        return jsonify({"text": f"✅ Your team has been set to `{team}` and schema created (if needed)."})
+        return jsonify({"text": f"✅ Your team has been set to {team} and schema created (if needed)."})
     
     if command == "/unsetteam":
         conn = sqlite3.connect("user_team.db")
@@ -355,7 +305,7 @@ def process_slack_embedding(user_id, file_id, table_name, response_url):
         os.remove(temp_path)
         requests.post(response_url, json={
             "response_type": "in_channel",
-            "text": f"✅ File `{filename}` embedded into table `{table_name}`"
+            "text": f"✅ File {filename} embedded into table {table_name}"
         })
     except Exception as e:
         requests.post(response_url, json={
