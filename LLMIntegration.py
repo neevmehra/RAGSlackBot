@@ -63,14 +63,6 @@ def compress_pdf(input_path):
         return compressed_path
 
 
-'''def parse_pdf(file_path):
-    doc = fitz.open(file_path)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    doc.close()
-    return text'''
-
 def embed_and_store(file_path, table_name, schema):
     with tracer.start_as_current_span("embed_and_store") as span:
         span.set_attribute("file_path", file_path)
