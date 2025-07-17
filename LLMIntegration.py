@@ -215,19 +215,19 @@ def vector_search(user_query, schema):
 
 def clean_llm_response(text: str) -> str:
     # Remove repetitive intros
-    text = re.sub(r"(?i)^based on the provided context.*?:\s*", "", text)
+    # text = re.sub(r"(?i)^based on the provided context.*?:\s*", "", text)
 
-    # Remove ticket boilerplate like "Here are some possible causes" or "Steps to troubleshoot:"
-    text = re.sub(r"(?i)(steps to troubleshoot:|possible issues and solutions:)\s*", "", text)
-    # Remove markdown-style headers like "### Something"
-    text = re.sub(r"(?i)^#{1,6} .*", "", text, flags=re.MULTILINE)
+    # # Remove ticket boilerplate like "Here are some possible causes" or "Steps to troubleshoot:"
+    # text = re.sub(r"(?i)(steps to troubleshoot:|possible issues and solutions:)\s*", "", text)
+    # # Remove markdown-style headers like "### Something"
+    # # text = re.sub(r"(?i)^#{1,6} .*", "", text, flags=re.MULTILINE)
 
-    # Remove numbered section headers like "1. **Check XYZ**:"
-    text = re.sub(r"^\d+\.\s+\*\*(.*?)\*\*:?", "", text, flags=re.MULTILINE)
-    # Trim long whitespace
-    text = re.sub(r'\n{2,}', '\n\n', text.strip())
+    # # # Remove numbered section headers like "1. **Check XYZ**:"
+    # # text = re.sub(r"^\d+\.\s+\*\*(.*?)\*\*:?", "", text, flags=re.MULTILINE)
+    # # Trim long whitespace
+    # text = re.sub(r'\n{2,}', '\n\n', text.strip())
 
-    # Optionally, cut off hallucinated headers
+    # # Optionally, cut off hallucinated headers
     text = re.sub(r"(?i)^summary:\s*", "", text)
 
     return text.strip()
