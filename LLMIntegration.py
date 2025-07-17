@@ -212,7 +212,22 @@ def vector_search(user_query, schema):
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
-        
+
+def clean_llm_response(text: str) -> str:
+    # Remove repetitive intros
+    text = re.sub(r"(?i)^based on the provided context.*?:\s*", "", text)
+
+    # Remove ticket boilerplate like "Here are some possible causes" or "Steps to troubleshoot:"
+    text = re.sub(r"(?i)(steps to troubleshoot:|possible issues and solutions:)\s*", "", text)
+
+    # Trim long whitespace
+    text = re.sub(r'\n{2,}', '\n\n', text.strip())
+
+    # Optionally, cut off hallucinated headers
+    text = re.sub(r"(?i)^summary:\s*", "", text)
+
+    return text.strip()
+
 def generate_answer(user_query, retrieved_docs):
 
     with tracer.start_as_current_span("generate_answer") as span: 
@@ -255,7 +270,7 @@ def generate_answer(user_query, retrieved_docs):
         span.set_attribute("raw_response_length", len(raw_response))
 
         
-        return raw_response
+        return clean_llm_response(raw_response)
     
     except Exception as e: 
         span.record_exception(e)
