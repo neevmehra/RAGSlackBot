@@ -1,9 +1,10 @@
-import os, sys, array, json, re, time, sqlite3, fitz
+import os, sys, array, json, re, time, sqlite3, fitz, subprocess
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 from telemetry import tracer
 from opentelemetry import trace
+from PyPDF2 import PdfReader
 
 
 # ================== ORACLE DB SETUP ==================
@@ -39,28 +40,23 @@ generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferen
 
 # ================== FILE INGESTION + CHUNKING ==================
 
-def chunk_text_by_tokens(text, max_tokens=300, overlap=50):
-    words = text.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        chunk_words = words[i:i + max_tokens]
-        if len(chunk_words) < 10:
-            break  # skip trivial fragments
-        chunk = " ".join(chunk_words)
-        chunks.append(chunk)
-        i += max_tokens - overlap  # move with overlap to preserve context
-    return chunks
-
-def compress_pdf(input_path):
+def compress_pdf(input_path, output_path): #compression using qpdf
     
-        doc = fitz.open(input_path)
-        for page in doc:
-            page.clean_contents()  ### remove unused elements
-        compressed_path = input_path.replace(".pdf", "_compressed.pdf")
-        doc.save(compressed_path, garbage=4, deflate=True)
-        doc.close()
-        return compressed_path
+        subprocess.run(["qpdf", "--linearize", input_path, output_path], check=True)
+        return output_path
+
+def parse_pdf(file_path): #pdf parsing using PyPDF2
+    text = ""
+    reader = PdfReader(file_path)
+    for page in reader.pages:
+        extracted_text = page.extract_text()
+        if extracted_text:
+            text += extracted_text + "\n"   
+    return text
+
+chunk_size = 300  # Define a chunk size in characters for text splitting
+def chunk_text_by_tokens(text, max_tokens=300):
+    return [text[i:i+chunk_size]for i in range(0, len(text), chunk_size)]
 
 
 def embed_and_store(file_path, table_name, schema):
@@ -113,20 +109,24 @@ def embed_and_store(file_path, table_name, schema):
                 docs.append({"text": doc_text})
 
         elif file_path.endswith('.pdf'):
-            file_path = compress_pdf(file_path) 
-            doc = fitz.open(file_path)
-            for page_num in range(len(doc)):
-                text = doc[page_num].get_text()
-                paragraphs = [p.strip() for p in text.split('\n') if len(p.strip()) > 50]
-                for i, paragraph in enumerate(paragraphs):
-                    chunks = chunk_text_by_tokens(paragraph)
-                    for j, chunk in enumerate(chunks):
-                        docs.append({
+            from PyPDF2 import PdfReader
+            reader = PdfReader(file_path)
+            text = ""
+
+            for page_num, page in enumerate(reader.pages):
+                page_text = page.extract_text() or ""
+                text += page_text + "\n"
+
+            paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 50]
+
+            for i, paragraph in enumerate(paragraphs):
+                chunks = chunk_text_by_tokens(paragraph)
+                for j, chunk in enumerate(chunks):
+                    docs.append({
                         "text": chunk,
-                        "chunk_id": f"pdf_page{page_num+1}_para{i+1}_chunk{j+1}",
+                        "chunk_id": f"pdf_para{i+1}_chunk{j+1}",
                         "source": f"PDF_{os.path.basename(file_path)}"
-                })
-        doc.close() ###end of the pdf extraction
+            }) ###end of the pdf extraction
 
         # =================== Embedding ====================
         data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
