@@ -109,13 +109,11 @@ def embed_and_store(file_path, table_name, schema):
                 docs.append({"text": doc_text})
 
         elif file_path.endswith('.pdf'):
-            from PyPDF2 import PdfReader
-            reader = PdfReader(file_path)
-            text = ""
 
-            for page_num, page in enumerate(reader.pages):
-                page_text = page.extract_text() or ""
-                text += page_text + "\n"
+            compress_path = os.path.join("/tmp", f"compressed._{os.path.basename(file_path)}")
+            compress_pdf(file_path, compress_pdf) # compress the pdf file first
+            
+            text = parse_pdf(compress_path)
 
             paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 50]
 
