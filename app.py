@@ -1,6 +1,6 @@
 # IMPORTS
 import threading, requests, os, re, redis, json, sqlite3
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 from telemetry import setup_telemetry 
@@ -232,7 +232,10 @@ def embed_file():
             "message": f"❌ Embedding failed: {str(e)}"
         }), 500
 
-    
+@app.route('/')
+def index():
+    return render_template('upload.html')
+
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
     command = request.form.get("command")
