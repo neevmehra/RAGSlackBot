@@ -268,7 +268,10 @@ def generate_answer(user_query, retrieved_docs):
 
         span.set_attribute("context_length", len(context))
         user_prompt = (
-            f"Context:\n{context}\n\nUser query:\n{user_query}"
+        "You are an expert assistant trained to help users based on internal support documents.\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question:\n{user_query}\n\n"
+        "Answer clearly and concisely with step-by-step resolution processes and include a citation section at the end citing your sources."
         )
     
         span.set_attribute("prompt_length", len(user_prompt))
