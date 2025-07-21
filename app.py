@@ -8,12 +8,14 @@ from opentelemetry import trace
 from dotenv import load_dotenv
 import time 
 from requests_oauthlib import OAuth2Session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 load_dotenv()
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 CORS(app)
 app.secret_key = os.getenv("APP_SECRET_KEY")
 tracer = setup_telemetry(app)
@@ -379,4 +381,4 @@ def process_slack_embedding(user_id, file_id, table_name, response_url):
         })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="127.0.0.1", port=5000)
