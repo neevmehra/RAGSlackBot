@@ -7,6 +7,8 @@ from telemetry import setup_telemetry
 from opentelemetry import trace
 from dotenv import load_dotenv
 import time 
+from requests_oauthlib import OAuth2Session
+
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
@@ -22,42 +24,53 @@ USERS = {
     "admin": "1234"
 }
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login")
 def login():
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
+    oauth = get_oauth_session()
+    authorization_url, state = oauth.authorization_url(os.getenv("OAUTH_AUTH_URL"))
 
-        if USERS.get(username) == password:
-            session["user"] = username
-            return redirect(url_for("index"))
-        else:
-            return "Invalid credentials", 401
+    # Store state in session to validate later
+    session["oauth_state"] = state
+    return redirect(authorization_url)
 
-    return '''
-    <form method="post">
-        <h2>Login</h2>
-        <input name="username" placeholder="Username" /><br>
-        <input name="password" placeholder="Password" type="password" /><br>
-        <input type="submit" value="Login" />
-    </form>
-    '''
+@app.route("/login/callback")
+def callback():
+    oauth = get_oauth_session(state=session.get("oauth_state"))
+    token = oauth.fetch_token(
+        os.getenv("OAUTH_TOKEN_URL"),
+        client_secret=os.getenv("OAUTH_CLIENT_SECRET"),
+        authorization_response=request.url,
+    )
+
+    session["oauth_token"] = token
+
+    # Get user info from ID token (JWT) or make request to userinfo endpoint if available
+    id_token = token.get("id_token")
+    if id_token:
+        # NOTE: For production, use a proper JWT decode library and validate signature
+        from base64 import urlsafe_b64decode
+        import json
+
+        payload_part = id_token.split('.')[1]
+        padded = payload_part + '=' * (4 - len(payload_part) % 4)
+        user_info = json.loads(urlsafe_b64decode(padded))
+        session["user"] = user_info.get("email", "Unknown")
+    else:
+        session["user"] = "Unknown"
+
+    return redirect("/")
+
 @app.route("/logout")
 def logout():
-    session.pop("user", None)
-    return redirect("/login")
+    session.clear()
+    return redirect("/")
 
 @app.route("/")
 def index():
     if "user" not in session:
-        print("[Index] No user in session, redirecting to login.")
         return redirect("/login")
-    try:
-        print("[Index] User in session:", session["user"])
-        return render_template("upload.html")
-    except Exception as e:
-        print("[Index] Render error:", str(e))
-        raise
+    return render_template("upload.html")
+
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
@@ -295,6 +308,15 @@ def slack_commands():
         conn.commit()
         conn.close()
         return jsonify({"text": "✅ Your team assignment has been removed."})
+
+def get_oauth_session(state=None, token=None):
+    return OAuth2Session(
+        client_id=os.getenv("OAUTH_CLIENT_ID"),
+        redirect_uri=os.getenv("OAUTH_REDIRECT_URI"),
+        scope=["openid", "email", "profile"],
+        state=state,
+        token=token
+    )
 
 def update_user_team(user_id, team):
     conn = sqlite3.connect("user_team.db")
