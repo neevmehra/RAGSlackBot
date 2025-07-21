@@ -48,8 +48,14 @@ def logout():
 @app.route("/")
 def index():
     if "user" not in session:
+        print("[Index] No user in session, redirecting to login.")
         return redirect("/login")
-    return render_template("upload.html")
+    try:
+        print("[Index] User in session:", session["user"])
+        return render_template("upload.html")
+    except Exception as e:
+        print("[Index] Render error:", str(e))
+        raise
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
