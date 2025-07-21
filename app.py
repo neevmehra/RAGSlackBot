@@ -1,6 +1,6 @@
 # IMPORTS
 import threading, requests, os, re, redis, json, sqlite3
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
 from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
 from telemetry import setup_telemetry 
@@ -11,9 +11,45 @@ redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.getenv("APP_SECRET_KEY")
 tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 file_cache = {}
+
+USERS = {
+    "admin": "1234"
+}
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        if USERS.get(username) == password:
+            session["user"] = username
+            return redirect(url_for("index"))
+        else:
+            return "Invalid credentials", 401
+
+    return '''
+    <form method="post">
+        <h2>Login</h2>
+        <input name="username" placeholder="Username" /><br>
+        <input name="password" placeholder="Password" type="password" /><br>
+        <input type="submit" value="Login" />
+    </form>
+    '''
+@app.route("/logout")
+def logout():
+    session.pop("user", None)
+    return redirect("/login")
+
+@app.route("/")
+def index():
+    if "user" not in session:
+        return redirect("/login")
+    return render_template("upload.html")
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
@@ -231,10 +267,6 @@ def embed_file():
             "status": "error",
             "message": f"❌ Embedding failed: {str(e)}"
         }), 500
-
-@app.route('/')
-def index():
-    return render_template('upload.html')
 
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
