@@ -1,7 +1,8 @@
 # Virtual environments
 .venv/
 oracleenv/
-
+cloudflared-linux-x86_64.rpm/
+cloudflared-linux-amd64.deb/
 # Python bytecode
 __pycache__/
 *.pyc
