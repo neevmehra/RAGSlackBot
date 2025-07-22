@@ -3,6 +3,7 @@
 oracleenv/
 cloudflared-linux-x86_64.rpm/
 cloudflared-linux-amd64.deb/
+venv/
 # Python bytecode
 __pycache__/
 *.pyc

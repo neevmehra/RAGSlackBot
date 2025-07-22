@@ -1,6 +1,13 @@
-sentence-transformers
+Flask
+flask-cors
+requests
+redis
+python-dotenv
+requests-oauthlib
+werkzeug
 oracledb
 oci
-flask
-python-dotenv
-requests
+sentence-transformers  # if you really need it, else remove
+PyPDF2
+opentelemetry-api
+opentelemetry-sdk
