@@ -1,4 +1,4 @@
-import os, sys, array, json, re, time, sqlite3, fitz, subprocess
+import os, sys, array, json, re, time, sqlite3, subprocess
 import oracledb, oci
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
