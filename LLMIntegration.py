@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from telemetry import tracer
 from opentelemetry import trace
 from PyPDF2 import PdfReader
+import pandas as pd
 
 
 # ================== ORACLE DB SETUP ==================
@@ -53,6 +54,56 @@ def parse_pdf(file_path): #pdf parsing using PyPDF2
         if extracted_text:
             text += extracted_text + "\n"   
     return text
+
+def parse_csv(file_path):
+    df = pd.read_csv(file_path, encoding='utf-8')
+    df.columns = df.columns.str.strip()
+    records = df.to_dict('records')
+    parsed_records = []
+    for idx, record in enumerate(records):
+        sr_number = record.get('SR Number', 'N/A')
+        global_party_name = record.get('Global Parent Party Name', 'N/A')
+        country = record.get('Country Name', 'N/A')
+        title = record.get('Title', 'N/A')
+        error_message = record.get('Error Message', 'N/A')
+        severity = record.get('Severity', 'N/A')
+        status = record.get('Status', 'N/A')
+        product_line = record.get('Product Line', 'N/A')
+        product_category = record.get('Product Category(Legacy)', 'N/A')
+        category = record.get('Category', 'N/A')
+        product_version = record.get('Product Version', 'N/A')
+        platform = record.get('Platform', 'N/A')
+        root_cause = record.get('Root Cause', 'N/A')
+        resolution_time = record.get('Resolution Time', 'N/A')
+        resolution_range = record.get('Resolution Range', 'N/A')
+        creation_date = record.get('Creation Date', 'N/A')
+        date_closed = record.get('Date Closed', 'N/A')
+        resolution_date = record.get('Resolution Date', 'N/A')
+        sr_type = record.get('SR Type', 'N/A')
+        source = record.get('Source', 'N/A')
+        level_of_service = record.get('Level of Service', 'N/A')
+        functional_description = record.get('Functional Product Description', 'N/A')
+
+        parsed_record = {
+            "sr_number": sr_number,
+            "customer": global_party_name,
+            "product_line": product_line,
+            "root_cause": root_cause,
+            "severity": severity,
+            "status": status,
+            "platform": platform,
+            "resolution_time": resolution_time,
+            "creation_date": creation_date,
+            "source_file": os.path.basename(file_path),
+            "title": title,
+            "record_index": idx,
+            "chunk_id": f"csv_sr_{sr_number}_record_{idx}",
+            "source": f"CSV_{os.path.basename(file_path)}"
+        }
+
+        parsed_records.append(parsed_record)
+    
+    return parsed_records
 
 chunk_size = 300  # Define a chunk size in characters for text splitting
 def chunk_text_by_tokens(text, max_tokens=300):
@@ -107,6 +158,29 @@ def embed_and_store(file_path, table_name, schema):
                     f"Ticket URL: {ticket.get('ticket_url', 'N/A')}"
                 ])
                 docs.append({"text": doc_text})
+        
+        elif file_path.endswith('.csv'):
+            try:
+                csv_records = parse_csv(file_path)
+                if not csv_records:
+                    raise ValueError("No records found in CSV file")
+
+                for record in csv_records:
+                    doc_text = "\n".join([
+                        f"Service Request: {record['sr_number']}",
+                        f"Customer: {record['customer']}",
+                        f"Issue Title: {record['title']}",
+                        f"Status: {record['status']}",
+                        f"Severity: {record['severity']}",
+                        f"Product: {record['product_line']}",
+                        f"Root Cause: {record['root_cause']}"
+                    ])
+                    docs.append({"text": doc_text})
+            except Exception as e:
+                print(f"MINIMAL TEST ERROR: {str(e)}")
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR, f"CSV parsing error: {str(e)}"))
+                raise ValueError(f"Error parsing CSV file: {str(e)}")
 
         elif file_path.endswith('.pdf'):
 

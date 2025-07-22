@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import time 
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
+from base64 import urlsafe_b64decode
 
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
@@ -49,9 +50,6 @@ def callback():
     # Get user info from ID token (JWT) or make request to userinfo endpoint if available
     id_token = token.get("id_token")
     if id_token:
-        # NOTE: For production, use a proper JWT decode library and validate signature
-        from base64 import urlsafe_b64decode
-        import json
 
         payload_part = id_token.split('.')[1]
         padded = payload_part + '=' * (4 - len(payload_part) % 4)
