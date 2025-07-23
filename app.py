@@ -2,7 +2,7 @@
 import threading, requests, os, re, redis, json, sqlite3
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
-from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists
+from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists, clean_llm_response_slack, clean_llm_response_web
 from telemetry import setup_telemetry 
 from opentelemetry import trace
 from dotenv import load_dotenv
@@ -196,6 +196,7 @@ def slack_events():
                     docs = vector_search(user_input, schema)
                     all_context = memory_text + docs
                     response = generate_answer(user_input, all_context)
+                    response = clean_llm_response_slack(response)
 
                     # Update the memory with this latest turn
                     new_entry = f"User: {user_input}\nBot: {response}"

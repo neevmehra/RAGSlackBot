@@ -1,6 +1,6 @@
 import os, sys, array, json, re, time, sqlite3, subprocess
 import oracledb, oci
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from dotenv import load_dotenv
 from telemetry import tracer
 from opentelemetry import trace
@@ -18,10 +18,12 @@ os.environ["TNS_ADMIN"] = os.path.join(BASE_DIR, "wallet")
 un = os.getenv("DB_USER")
 pw = os.getenv("DB_PASS")
 cs = os.getenv("DB_DSN")
-topK = 3
+initial_topK = 20
+final_topK = 5
 
 # ================== EMBEDDING MODEL ==================
 embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
+reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
 
 # ================== OCI GENERATIVE AI SETUP ==================
 compartment_id = "ocid1.compartment.oc1..aaaaaaaaawkpra4vxusalnxjz3aztkizm7jnxis5docvbj2cssqau3a4xlaq"
@@ -185,7 +187,7 @@ def embed_and_store(file_path, table_name, schema):
         elif file_path.endswith('.pdf'):
 
             compress_path = os.path.join("/tmp", f"compressed._{os.path.basename(file_path)}")
-            compress_pdf(file_path, compress_pdf) # compress the pdf file first
+            compress_pdf(file_path, compress_path) # compress the pdf file first
             
             text = parse_pdf(compress_path)
 
@@ -249,7 +251,7 @@ def embed_and_store(file_path, table_name, schema):
 def vector_search(user_query, schema):
     with tracer.start_as_current_span("vector_search") as span:
         span.set_attribute("query", user_query)
-        span.set_attribute("topK", topK)
+        span.set_attribute("topK", initial_topK)
 
         tables_searched = 0
 
@@ -277,7 +279,7 @@ def vector_search(user_query, schema):
                                 SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
                                 FROM {schema}.{table_name}
                                 ORDER BY score 
-                                FETCH APPROX FIRST {topK} ROWS ONLY
+                                FETCH APPROX FIRST {initial_topK} ROWS ONLY
                             '''
                             rows = list(cursor.execute(sql_retrieval, vector=vec))
 
@@ -294,7 +296,8 @@ def vector_search(user_query, schema):
                             continue
 
             retrieved_docs.sort(key=lambda x: x[0])
-            final_docs = [text for _, text in retrieved_docs[:topK]]
+            raw_texts = [text for _, text in retrieved_docs[:initial_topK]]
+            final_docs = rerank_passages(user_query, raw_texts, top_n=final_topK)
 
             span.set_attribute("documents_retrieved", len(final_docs))
             span.set_attribute("tables_searched", tables_searched)
@@ -307,22 +310,31 @@ def vector_search(user_query, schema):
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
 
-def clean_llm_response(text: str) -> str:
-    # Remove repetitive intros
-    # text = re.sub(r"(?i)^based on the provided context.*?:\s*", "", text)
+# ================== RERANKER MODEL ==================
+def rerank_passages(query, passages, top_n=5):
+    pairs = [(query, passage) for passage in passages]
+    scores = reranker.predict(pairs, batch_size=8)
+    ranked = sorted(zip(passages, scores), key = lambda x: x[1], reverse=True)
+    return [p for p, _ in ranked[:top_n]]
 
-    # # Remove ticket boilerplate like "Here are some possible causes" or "Steps to troubleshoot:"
-    # text = re.sub(r"(?i)(steps to troubleshoot:|possible issues and solutions:)\s*", "", text)
-    # # Remove markdown-style headers like "### Something"
-    # # text = re.sub(r"(?i)^#{1,6} .*", "", text, flags=re.MULTILINE)
+# ================== LLM OUTPUT ==================
+def clean_llm_response_slack(text: str) -> str:
+    # Remove "#"
+    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
 
-    # # # Remove numbered section headers like "1. **Check XYZ**:"
-    # # text = re.sub(r"^\d+\.\s+\*\*(.*?)\*\*:?", "", text, flags=re.MULTILINE)
-    # # Trim long whitespace
-    # text = re.sub(r'\n{2,}', '\n\n', text.strip())
+    # Convert "**" to "*" for bolding
+    text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
 
-    # # Optionally, cut off hallucinated headers
-    text = re.sub(r"(?i)^summary:\s*", "", text)
+    # Remove extra spaces
+    return text.strip()
+
+def clean_llm_response_web(text: str) -> str:
+    # Remove markdown headers
+    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
+
+    # Convert **bold** and *bold* to <strong>...</strong>
+    text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
+    text = re.sub(r"\*(.*?)\*", r"<strong>\1</strong>", text)
 
     return text.strip()
 
@@ -371,7 +383,7 @@ def generate_answer(user_query, retrieved_docs):
         span.set_attribute("raw_response_length", len(raw_response))
 
         
-        return clean_llm_response(raw_response)
+        return raw_response
     
     except Exception as e: 
         span.record_exception(e)
