@@ -6,6 +6,7 @@ from telemetry import tracer
 from opentelemetry import trace
 from PyPDF2 import PdfReader
 import pandas as pd
+from prometheus_client import Summary, generate_latest, CONTENT_TYPE_LATEST
 
 
 # ================== ORACLE DB SETUP ==================
@@ -76,7 +77,6 @@ def parse_csv(file_path):
         product_version = record.get('Product Version', 'N/A')
         platform = record.get('Platform', 'N/A')
         root_cause = record.get('Root Cause', 'N/A')
-        resolution_time = record.get('Resolution Time', 'N/A')
         resolution_range = record.get('Resolution Range', 'N/A')
         creation_date = record.get('Creation Date', 'N/A')
         date_closed = record.get('Date Closed', 'N/A')
@@ -94,7 +94,7 @@ def parse_csv(file_path):
             "severity": severity,
             "status": status,
             "platform": platform,
-            "resolution_time": resolution_time,
+            "resolution_range": resolution_range,
             "creation_date": creation_date,
             "source_file": os.path.basename(file_path),
             "title": title,
@@ -175,7 +175,9 @@ def embed_and_store(file_path, table_name, schema):
                         f"Status: {record['status']}",
                         f"Severity: {record['severity']}",
                         f"Product: {record['product_line']}",
-                        f"Root Cause: {record['root_cause']}"
+                        f"Root Cause: {record['root_cause']}", 
+                        f"Resolution Range: {record['resolution_range']}",
+                       
                     ])
                     docs.append({"text": doc_text})
             except Exception as e:
