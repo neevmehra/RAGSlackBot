@@ -6,7 +6,6 @@ from telemetry import tracer
 from opentelemetry import trace
 from PyPDF2 import PdfReader
 import pandas as pd
-from prometheus_client import Summary, generate_latest, CONTENT_TYPE_LATEST
 
 
 # ================== ORACLE DB SETUP ==================
