@@ -369,6 +369,14 @@ def generate_answer(user_query, retrieved_docs):
         f"Context:\n{context}\n\n"
         f"Question:\n{user_query}\n\n"
         "Answer clearly and concisely with step-by-step resolution processes and include a citation section at the end citing your sources."
+
+        "If the user is asking for a root cause analysis, respond using the following structure:\n"
+        "1. **Event Summary**: Briefly describe what happened.\n"
+        "2. **Root Cause Details**: Explain what the underlying issue was and how it was identified.\n"
+        "3. **Corrective Actions**: Identify any recurring patterns or issues and suggest steps to fix them.\n"
+        "4. **Event Timeline**: List key timestamps and events in order.\n\n"
+        "For all answers, be clear and concise, include step-by-step resolution processes when needed, "
+        "and provide a citation section at the end citing your sources."
         )
     
         span.set_attribute("prompt_length", len(user_prompt))
