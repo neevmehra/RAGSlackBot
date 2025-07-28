@@ -78,6 +78,8 @@ def parse_csv(file_path):
         root_cause = record.get('Root Cause', 'N/A')
         resolution_range = record.get('Resolution Range', 'N/A')
         creation_date = record.get('Creation Date', 'N/A')
+        created_month = record.get('Create Month', 'N/A')
+        closed_month = record.get("Close Month", "N/A")
         date_closed = record.get('Date Closed', 'N/A')
         resolution_date = record.get('Resolution Date', 'N/A')
         sr_type = record.get('SR Type', 'N/A')
@@ -174,7 +176,11 @@ def embed_and_store(file_path, table_name, schema):
                         f"Status: {record['status']}",
                         f"Severity: {record['severity']}",
                         f"Product: {record['product_line']}",
-                        f"Root Cause: {record['root_cause']}", 
+                        f"Root Cause: {record['root_cause']}",
+                        f"Create Date: {record['creation_date']}",
+                        f"Closed Date: {record['date_closed']}",
+                        f"Create Month: {record['created_month']}",
+                        f"Closed Month: {record['closed_month']}",
                         f"Resolution Range: {record['resolution_range']}",
                        
                     ])
