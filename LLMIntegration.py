@@ -287,7 +287,7 @@ def vector_search(user_query, schema):
                         try:
                             print(f"[DEBUG] Attempting vector search in table: {table_name}")
                             sql_retrieval = f'''
-                                SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
+                                SELECT payload, VECTOR_DISTANCE(vector, :vector, EUCLIDEAN) as score 
                                 FROM {schema}.{table_name}
                                 ORDER BY score 
                                 FETCH APPROX FIRST {initial_topK} ROWS ONLY
