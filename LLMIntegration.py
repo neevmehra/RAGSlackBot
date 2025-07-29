@@ -7,7 +7,6 @@ from opentelemetry import trace
 from PyPDF2 import PdfReader
 import pandas as pd
 
-
 # ================== ORACLE DB SETUP ==================
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,8 +21,22 @@ initial_topK = 20
 final_topK = 5
 
 # ================== EMBEDDING MODEL ==================
-embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
+#embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
 reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+embedding_model_id = "cohere.embed-v4.0"
+
+def get_oci_embeddings(texts):
+    if not texts or not isinstance(texts, list):
+        raise ValueError("Input must be a list of strings for embedding.")
+
+    embed_details = oci.generative_ai_inference.models.EmbedTextDetails()
+    embed_details.compartment_id = compartment_id
+    embed_details.inputs = texts
+    embed_details.truncate = "NONE"
+    embed_details.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=embedding_model_id)
+
+    response = generative_ai_inference_client.embed_text(embed_details)
+    return response.data.embeddings
 
 # ================== OCI GENERATIVE AI SETUP ==================
 compartment_id = "ocid1.compartment.oc1..aaaaaaaaawkpra4vxusalnxjz3aztkizm7jnxis5docvbj2cssqau3a4xlaq"
@@ -135,7 +148,7 @@ def embed_and_store(file_path, table_name, schema):
         span.set_attribute("table_name", table_name)
         span.set_attribute("file_type", "json" if file_path.endswith('.json') else "other")
 
-        encoder = SentenceTransformer('all-MiniLM-L12-v2')
+        #encoder = SentenceTransformer('all-MiniLM-L12-v2')
         docs = []
 
         # =================== File Parsing ====================
@@ -246,7 +259,8 @@ def embed_and_store(file_path, table_name, schema):
         # =================== Embedding ====================
         data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
         texts = [row['vector_source'] for row in data]
-        embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
+        #embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
+        embeddings = get_oci_embeddings(texts)
 
         for row, embedding in zip(data, embeddings):
             row['vector'] = array.array("f", embedding)
@@ -298,7 +312,7 @@ def vector_search(user_query, schema):
 
         try:
             print("[DEBUG] vector_search() started.")
-            embedding = list(embedding_model.encode(user_query))
+            embedding = get_oci_embeddings([user_query])[0]
             vec = array.array("f", embedding)
             retrieved_docs = []
 
