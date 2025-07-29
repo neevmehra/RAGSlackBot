@@ -423,7 +423,7 @@ def generate_answer(user_query, retrieved_docs):
 
         chat_request = oci.generative_ai_inference.models.CohereChatRequest(
             message=user_prompt,
-            max_tokens=600,
+            max_tokens=1200,
             temperature=0.5,
             top_p=0.75,
             top_k=0
