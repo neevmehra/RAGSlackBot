@@ -64,7 +64,7 @@ def parse_csv(file_path):
     parsed_records = []
     for idx, record in enumerate(records):
         sr_number = record.get('SR Number', 'N/A')
-        global_party_name = record.get('Global Parent Party Name', 'N/A')
+        customer = record.get('Global Parent Party Name', 'N/A')
         country = record.get('Country Name', 'N/A')
         title = record.get('Title', 'N/A')
         error_message = record.get('Error Message', 'N/A')
@@ -89,7 +89,7 @@ def parse_csv(file_path):
 
         parsed_record = {
             "sr_number": record.get('SR Number', 'N/A'),
-            "global_parent_party_name": record.get('Global Parent Party Name', 'N/A'),
+            "customer": record.get('Global Parent Party Name', 'N/A'),
             "party_name": record.get('Party Name', 'N/A'),
             "business_type": record.get('Business Type', 'N/A'),
             "country_name": record.get('Country Name', 'N/A'),
@@ -173,7 +173,7 @@ def embed_and_store(file_path, table_name, schema):
                     f"Description: {ticket.get('description', 'N/A')}",
                     f"Resolution: {ticket.get('resolution_description', 'N/A')}",
                     f"Root Cause: {ticket.get('root_cause', 'N/A')}",
-                    f"Customer: {ticket.get('customer_account', 'N/A')}"
+                    f"Customer: {ticket.get('customer_account', 'N/A')}",
                     f"Ticket URL: {ticket.get('ticket_url', 'N/A')}"
                 ])
                 docs.append({"text": doc_text})
@@ -188,17 +188,35 @@ def embed_and_store(file_path, table_name, schema):
                     doc_text = "\n".join([
                         f"Service Request: {record['sr_number']}",
                         f"Customer: {record['customer']}",
+                        f"Party Name: {record['party_name']}",
+                        f"Business Type: {record['business_type']}",
+                        f"Country: {record['country_name']}",
                         f"Issue Title: {record['title']}",
-                        f"Status: {record['status']}",
+                        f"Error Message: {record['error_message']}",
                         f"Severity: {record['severity']}",
-                        f"Product: {record['product_line']}",
-                        f"Root Cause: {record['root_cause']}",
+                        f"Initial Severity: {record['initial_severity']}",
+                        f"Highest Severity: {record['highest_severity']}",
+                        f"Contact Name: {record['contact_full_name']}",
+                        f"Escalation Status: {record['escalation_status']}",
                         f"Create Date: {record['creation_date']}",
                         f"Date Closed: {record['date_closed']}",
+                        f"Resolution Date: {record['resolution_date']}",
                         f"Create Month: {record['created_month']}",
                         f"Closed Month: {record['closed_month']}",
+                        f"Last Updated: {record['last_updated_on']}",
+                        f"Initial Response Done: {record['initial_response_done']}",
+                        f"SR Type: {record['sr_type']}",
+                        f"Source: {record['source']}",
+                        f"Status: {record['status']}",
+                        f"Substatus: {record['substatus']}",
                         f"Resolution Range: {record['resolution_range']}",
-                       
+                        f"Root Cause: {record['root_cause']}",
+                        f"Product Line: {record['product_line']}",
+                        f"Product Version: {record['product_version']}",
+                        f"Hardware/Software: {record['hardware_software']}",
+                        f"Source System: {record['source_system']}",
+                        f"Functional Description: {record['functional_product_description']}",
+                        f"Level of Service: {record['level_of_service']}"
                     ])
                     docs.append({"text": doc_text})
             except Exception as e:
