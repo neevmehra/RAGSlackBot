@@ -2,7 +2,7 @@
 import threading, requests, os, re, redis, json, sqlite3
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
-from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists, clean_llm_response_slack, clean_llm_response_web
+from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists, clean_llm_response_slack, get_all_schemas, clean_llm_response_web
 from telemetry import setup_telemetry 
 from opentelemetry import trace
 from dotenv import load_dotenv
@@ -239,26 +239,31 @@ def ask():
         return jsonify({"error": "No schema provided"}), 400
 
     try:
-        docs = vector_search(question, schema)
+        docs = vector_search(question, schema)  # Query from the correct schema
         response = generate_answer(question, docs)
         return jsonify({"answer": response})
     except Exception as e:
-        return jsonify({"answer": f"Error: {str(e)}"})
+        return jsonify({"answer": f"Error: {str(e)}"}), 500
 
 @app.route("/embed", methods=["POST"])
 def embed_file():
+    schema = request.form.get("schema")
+    new_team = request.form.get("new_team")
+    table_name = request.form.get("table_name")
+    file = request.files.get("file")
+
+    # Handle creation of new team schema
+    if new_team and new_team.strip():
+        schema = new_team.strip()
+        create_schema_if_not_exists(schema)
+        user_id = session.get("user_id")
+        if user_id:
+            update_user_team(user_id, schema)
+
+    if not file or not table_name or not schema:
+        return jsonify({"error": "Missing file, table_name, or schema"}), 400
+
     with tracer.start_as_current_span("embed_file_handler"):
-        schema = request.form.get("schema")  # Use schema directly now (from HTML)
-        table_name = request.form.get("table_name")
-        file = request.files.get("file")
-
-        if not file or not table_name or not schema:
-            return jsonify({"error": "Missing file, table_name, or schema"}), 400
-
-
-        #full_table_name = f"{schema}.{table_name}"
-        #table_name = table_match.group(1)
-
         try:
             temp_path = f"/tmp/{file.filename}"
             file.save(temp_path)
@@ -273,22 +278,11 @@ def embed_file():
                 "status": "error",
                 "message": f"❌ Embedding failed: {str(e)}"
             }), 500
-    #full_table_name = f"{schema}.{table_name}"
 
-    try:
-        temp_path = f"/tmp/{file.filename}"
-        file.save(temp_path)
-        embed_and_store(temp_path, table_name, schema)
-        os.remove(temp_path)
-        return jsonify({
-            "status": "success",
-            "message": f"✅ File embedded into {table_name}."
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"❌ Embedding failed: {str(e)}"
-        }), 500
+@app.route("/schemas")
+def get_schemas():
+    schemas = get_all_schemas()
+    return jsonify({"schemas": schemas})
 
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():

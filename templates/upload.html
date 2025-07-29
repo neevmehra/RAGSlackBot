@@ -156,11 +156,62 @@
     <input type="file" name="file" id="file" accept=".json, .pdf" required />
 
     <label for="schema">Select Team (Required):</label>
-    <select name="schema" id="schema" required>
-      <option value="">--Choose a team--</option>
-      <option value="TeamA">TeamA</option>
-      <option value="CSS">CSS</option>
-    </select>
+  <select name="schema" id="schema" required>
+    <option value="">--Choose a team--</option>
+    <option value="TeamA">TeamA</option>
+    <option value="CSS">CSS</option>
+    <option value="__create__">+ Create New Team</option>
+  </select>
+
+  <div id="new-team-container" style="display: none; margin-top: 10px;">
+    <label for="new_team">New Team Name:</label>
+    <input type="text" id="new_team" name="new_team" placeholder="e.g., TravelOps" />
+  </div>
+
+  <script>
+    const schemaDropdown = document.getElementById('schema');
+    const newTeamContainer = document.getElementById('new-team-container');
+
+    // Show/hide new team input based on dropdown selection
+    schemaDropdown.addEventListener('change', function () {
+      if (this.value === '__create__') {
+        newTeamContainer.style.display = 'block';
+      } else {
+        newTeamContainer.style.display = 'none';
+      }
+    });
+
+    // Function to fetch teams dynamically from backend and populate dropdown
+    async function loadSchemas() {
+      try {
+        const response = await fetch('/schemas');
+        const data = await response.json();
+
+        if (data.schemas && Array.isArray(data.schemas)) {
+          // Remove all options except placeholders and "create new"
+          [...schemaDropdown.options].forEach(option => {
+            if (option.value !== "" && option.value !== "__create__") {
+              schemaDropdown.remove(option.index);
+            }
+          });
+
+          // Add teams dynamically before the "create new" option
+          data.schemas.forEach(team => {
+            const option = document.createElement('option');
+            option.value = team;
+            option.textContent = team;
+            schemaDropdown.insertBefore(option, schemaDropdown.querySelector('option[value="__create__"]'));
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load schemas:', err);
+      }
+    }
+
+    // Load schemas on page load
+    window.addEventListener('DOMContentLoaded', loadSchemas);
+  </script>
+
 
     <label for="table_name">Table name:</label>
     <input type="text" name="table_name" id="table_name" placeholder="e.g., tickets" required />
@@ -201,6 +252,7 @@
   // Listen for iframe load to confirm upload finished
   document.querySelector('iframe[name="hidden_iframe"]').addEventListener('load', () => {
     uploadStatus.textContent = 'Upload & embedding complete!';
+    loadSchemas();
   });
 
   // Strip simple markdown **bold**

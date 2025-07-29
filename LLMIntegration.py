@@ -351,6 +351,16 @@ def vector_search(user_query, schema):
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
 
+def get_all_schemas():
+    with oracledb.connect(user=un, password=pw, dsn=cs) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT username FROM all_users
+                WHERE username NOT IN ('SYS', 'AUDSYS', 'SYSTEM', 'SYSBACKUP', 'SYSDG', 'SYSKM', 'SYSRAC', 'OUTLN', 'VECSYS', 'GSMADMIN_INTERNAL', 'GSMUSER', 'DIP', 'XS$NULL', 'REMOTE_SCHEDULER_AGENT', 'DBSFWUSER', 'GGSHAREDCAP', 'DBSNMP', 'SYS$UMF', 'DGPDB_INT', 'APPQOSSYS', 'GSMCATUSER', 'GGSYS', 'DVF', 'MTSSYS', 'XDB', 'LBACSYS', 'C##CLOUD_OPS', 'C##API', 'C##DNSREST', 'C##RFS', 'C##QUEUE$SERVICE', 'C##DV_OWNER', 'C##DV_ACCT_ADMIN', 'C##CLOUD$SERVICE', 'C##DATA$SHARE', 'MDDATA', 'ADMIN', 'LBAC_TRIGGER', 'DCAT_ADMIN', 'ADB_APP_STORE', 'GGADMIN', 'ADBSNMP', 'CTXSYS', 'MDSYS', 'DVSYS', 'FLOWS_FILES', 'C##ADP$SERVICE', 'OMLMOD$PROXY', 'OML$MODELS', 'ORDS_PUBLIC_USER', 'ORDS_METADATA', 'ORDS_PLSQL_GATEWAY', 'GRAPH$METADATA', 'GRAPH$PROXY_USER', 'ODI$PROXY', 'ODI_REPO_USER', 'C##OMLIDM', 'SSB', 'SH', 'PYQSYS', 'RQSYS', 'C##OMLREST2', 'OML$METADATA', 'OML$PROXY', 'RMAN$CATALOG', 'APEX_PUBLIC_ROUTER', 'C##TOTP_GENERATOR', 'APEX_240200', 'WKSP_PROJECTINDUSTRY', 'WKSP_TESTINGAPEX', 'WKSP_INTERNTESTINGAPEX', 'CUSTOMER_SUPPORT_AI', 'TESTING', 'C##TOTP_VALIDATOR', 'BAASSYS')
+            """)
+            schemas = [row[0] for row in cursor.fetchall()]
+    return schemas
+
 # ================== RERANKER MODEL ==================
 def rerank_passages(query, passages, top_n=5):
     pairs = [(query, passage) for passage in passages]
@@ -446,7 +456,7 @@ def create_schema_if_not_exists(schema_name):
     dsn = os.getenv("DB_DSN")
 
     schema_name = schema_name.upper()
-    password = "TempStrongPass123"  # Randomize this or store securely
+    password = "TempStrongPass123"  # Random
 
     with oracledb.connect(user=admin_user, password=admin_pass, dsn=dsn) as conn:
         with conn.cursor() as cur:
