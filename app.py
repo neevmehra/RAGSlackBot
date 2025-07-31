@@ -221,8 +221,8 @@ def slack_events():
         
         threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
         return jsonify({
-            "response_type": "ephemeral",
-            "text": "Working on it...⏳"
+            "response_type": "in_channel",
+            "text": f"*<@{user_id}> asked:* {user_input}\nWorking on it...⏳"
         })
     
     return jsonify({"error": "Unsupported command"}), 400

@@ -425,10 +425,10 @@ def generate_answer(user_query, retrieved_docs):
         "Answer clearly and concisely with step-by-step resolution processes and include a citation section at the end citing your sources."
 
         "If the user explicitly asks for a root cause analysis for a specific company, respond using the following structure:\n"
-        "1. **Event Summary**: Briefly describe what happened.\n"
-        "2. **Root Cause Details**: Explain the underlying issue, how it was identified, and why it occurred.\n"
-        "3. **Corrective Actions**: Identify any recurring patterns or issues for that company and suggest specific steps to fix or prevent them.\n"
-        "4. **Event Timeline**: Provide key timestamps and events in chronological order.\n\n"
+        "1. Event Summary: Briefly describe what happened.\n"
+        "2. Root Cause Details: Explain the underlying issue, how it was identified, and why it occurred.\n"
+        "3. Corrective Actions: Identify any recurring patterns or issues for that company and suggest specific steps to fix or prevent them.\n"
+        "4. Event Timeline: Provide key timestamps and events in chronological order.\n\n"
         "For all other questions, respond clearly and concisely with step-by-step resolution processes when appropriate, "
         "and include a citation section at the end citing your sources."
         )
