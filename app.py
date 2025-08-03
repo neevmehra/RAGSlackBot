@@ -10,7 +10,10 @@ import time
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from base64 import urlsafe_b64decode
+from telemetry import push_custom_metric
 
+
+#added a change here 
 # Connect to local Redis instance (data cache)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
@@ -218,6 +221,8 @@ def slack_events():
                 latency_ms = (end_time - start_time) * 1000  # convert to milliseconds
                 span.set_attribute("oraclebot.latency_ms", latency_ms)
                 print(f"[Telemetry] OracleBot Response Latency: {latency_ms:.2f} ms")
+                push_custom_metric(latency_ms, metric_name="oraclebot_latency_ms")
+
         
         threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
         return jsonify({
