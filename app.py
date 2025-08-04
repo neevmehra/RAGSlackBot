@@ -6,7 +6,7 @@ from LLMIntegration import vector_search, generate_answer, embed_and_store, crea
 from telemetry import setup_telemetry 
 from opentelemetry import trace
 from dotenv import load_dotenv
-import time 
+import time, oci
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from base64 import urlsafe_b64decode
@@ -25,6 +25,10 @@ app.secret_key = os.getenv("APP_SECRET_KEY")
 tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 file_cache = {}
+SLACK_BOT_USER_ID = os.getenv("SLACK_BOT_USER_ID")
+config = oci.config.from_file('/home/opc/oracle-bot/.oci/config')
+print(config['user'], config['region'])
+
 
 USERS = {
     "admin": "1234"
@@ -77,49 +81,71 @@ def index():
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
+    data = request.get_json()
 
-    with tracer.start_as_current_span("slack_events_handler"):
-        #Initialize data to None
-        data = None
-        
-        # Handle JSON requests first
-        if request.is_json:
-            data = request.get_json()
-        
-        # Process Events API payloads
-        if data:
-            # URL verification challenge
-            if "challenge" in data:
-                return jsonify({"challenge": data["challenge"]})
-            
-            # Handle file_shared event
-            if data.get("event", {}).get("type") == "file_shared":
-                event = data["event"]
-                file_id = event["file_id"]
-                user_id = event["user_id"]
-                channel_id = event.get("channel_id")
-                if channel_id:
-                    file_cache[(user_id, channel_id)] = {
-                        "file_id": file_id,
-                        "timestamp": event["event_ts"]
-                    }
-                return jsonify({}), 200
-            
-            # Handle message event with file_share subtype
-            if (data.get("event", {}).get("type") == "message" and 
-                data.get("event", {}).get("subtype") == "file_share"):
-                event = data["event"]
-                files = event.get("files", [])
-                if files:
-                    file_id = files[0]["id"]
-                    user_id = event.get("user")
-                    channel_id = event.get("channel")
-                    if user_id and channel_id:
-                        file_cache[(user_id, channel_id)] = {
-                            "file_id": file_id,
-                            "timestamp": event["ts"]
-                        }
-                return jsonify({}), 200
+    # Handle Slack URL verification challenge
+    if "challenge" in data:
+        return jsonify({"challenge": data["challenge"]})
+
+    event = data.get("event", {})
+    if event.get("type") != "message" or event.get("subtype"):
+        return jsonify({}), 200  # Ignore bot messages, joins, edits, etc.
+
+    text = event.get("text", "")
+    user_id = event.get("user")
+    channel_id = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+
+    # Determine if bot was explicitly mentioned
+    bot_mentioned = f"<@{SLACK_BOT_USER_ID}>" in text
+
+    # Check if this is a follow-up in an active thread
+    thread_active = redis_client.get(f"active_thread:{channel_id}:{thread_ts}")
+
+    if not bot_mentioned and not thread_active:
+        return jsonify({}), 200  # Ignore unrelated messages
+
+    schema = get_schema_for_user(user_id)
+    if not schema:
+        return jsonify({}), 200  # User has no team/schema assigned
+
+    # Mark thread as active for follow-ups (15 min TTL)
+    redis_client.setex(f"active_thread:{channel_id}:{thread_ts}", 900, "active")
+
+    def process_and_reply():
+        memory_key = f"context:{user_id}:{channel_id}"
+        prior_memory = redis_client.get(memory_key)
+        memory_text = json.loads(prior_memory) if prior_memory else []
+        memory_text = memory_text[-7:]  # Keep recent history
+
+        try:
+            docs = vector_search(text, schema)
+            all_context = memory_text + docs
+            response = generate_answer(text, all_context)
+            response = clean_llm_response_slack(response)
+
+            # Update memory
+            new_entry = f"User: {text}\nBot: {response}"
+            memory_text.append(new_entry)
+            redis_client.setex(memory_key, 900, json.dumps(memory_text))
+
+        except Exception as e:
+            response = f"⚠️ Error generating response: {str(e)}"
+
+        headers = {
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "text": response
+        }
+        requests.post("https://slack.com/api/chat.postMessage", headers=headers, data=json.dumps(payload))
+
+    threading.Thread(target=process_and_reply).start()
+    return jsonify({}), 200
+
 
     # Handle Slash Commands (form-encoded)
     user_input = request.form.get("text", "").strip()
@@ -225,10 +251,16 @@ def slack_events():
 
         
         threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
-        return jsonify({
-            "response_type": "in_channel",
-            "text": "Working on it...⏳"
+        headers = {
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        requests.post("https://slack.com/api/chat.postMessage", headers=headers, json={
+            "channel": channel_id,
+            "text": "Working on it...⏳",
+            "thread_ts": thread_ts
         })
+
     
     return jsonify({"error": "Unsupported command"}), 400
 

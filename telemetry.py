@@ -24,16 +24,16 @@ def setup_telemetry(app):
     return tracer
 
 # ---- OCI Monitoring Setup ----
-oci_config = {
-    "user": os.getenv("OCI_USER_OCID"),
-    "key_file": os.getenv("OCI_KEY_FILE"),
-    "fingerprint": os.getenv("OCI_FINGERPRINT"),
-    "tenancy": os.getenv("OCI_TENANCY_OCID"),
-    "region": os.getenv("OCI_REGION"),
-}
+# oci_config = {
+#     "user": os.getenv("OCI_USER_OCID"),
+#     "key_file": os.getenv("OCI_KEY_FILE"),
+#     "fingerprint": os.getenv("OCI_FINGERPRINT"),
+#     "tenancy": os.getenv("OCI_TENANCY_OCID"),
+#     "region": os.getenv("OCI_REGION"),
+# }
 
-monitoring_client = oci.monitoring.MonitoringClient(oci_config)
-compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
+# monitoring_client = oci.monitoring.MonitoringClient(oci_config)
+# compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
 
 def push_custom_metric(value: float, metric_name="slackbot_latency_ms"):
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

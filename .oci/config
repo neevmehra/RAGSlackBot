@@ -1,6 +1,6 @@
 [DEFAULT]
 user=ocid1.user.oc1..aaaaaaaassr6tkrxzy6pqwyzzn6xtfrzu3b6nufv7427rd7lr3ypr7q67mxq
 fingerprint=d2:3a:75:a4:54:b2:90:9a:1d:43:22:e7:70:ff:98:28
-key_file=./.oci/oci_api_key.pem
+key_file=/home/opc/oracle-bot/.oci/oci_api_key.pem
 tenancy=ocid1.tenancy.oc1..aaaaaaaaabc4esylkbw3jkbquuluuq4iftuuwnfc2yg2fguo4s7j43exv6pq
 region=us-chicago-1
