@@ -1,56 +1,77 @@
-# OpenTelemetry imports
-from opentelemetry import trace
+# telemetry.py
+
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from prometheus_client import start_http_server
 
-# OCI imports
-import oci
 import os
-import time
-from dotenv import load_dotenv
 
-# Load OCI environment variables
-load_dotenv()
-
-# ---- OpenTelemetry Setup ----
+# ---- Tracing (keep your existing console span exporter) ----
 trace.set_tracer_provider(TracerProvider())
-console_exporter = ConsoleSpanExporter()
-trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(console_exporter))
-tracer = trace.get_tracer(__name__)
+trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+tracer = trace.get_tracer(__name__)  # <-- Add this global back
 
-def setup_telemetry(app):
+# ---- Metrics globals ----
+_meter = None
+_latency_hist = None
+_error_counter = None
+
+def setup_telemetry(app, service_name="supportagent", service_version="1.0.0", prom_port=9464):
+    """
+    - Exposes Prometheus metrics on :prom_port (/metrics)
+    - Sets up OTel MeterProvider and instruments Flask + requests
+    - Keeps your Console tracing
+    """
+    resource = Resource.create({
+        "service.name": service_name,
+        "service.version": service_version,
+        "deployment.environment": os.getenv("ENV", "dev"),
+    })
+
+    # Metrics (Prometheus)
+    reader = PrometheusMetricReader()  # integrates with prometheus_client
+    provider = MeterProvider(resource=resource, metric_readers=[reader])
+    metrics.set_meter_provider(provider)
+
+    global _meter, _latency_hist, _error_counter
+    _meter = metrics.get_meter(service_name)
+
+    # Histogram for latency
+    _latency_hist = _meter.create_histogram(
+        name="oraclebot_latency_ms",
+        description="Latency of oraclebot responses (ms)",
+        unit="ms",
+    )
+
+    # Counter for errors
+    _error_counter = _meter.create_counter(
+        name="oraclebot_errors_total",
+        description="Count of oraclebot errors",
+        unit="1",
+    )
+
+    # Start /metrics HTTP endpoint (non-blocking)
+    start_http_server(prom_port)
+
+    # Auto-instrument Flask and outgoing HTTP calls
     FlaskInstrumentor().instrument_app(app)
+    RequestsInstrumentor().instrument()
+
     return tracer
 
-# ---- OCI Monitoring Setup ----
-# oci_config = {
-#     "user": os.getenv("OCI_USER_OCID"),
-#     "key_file": os.getenv("OCI_KEY_FILE"),
-#     "fingerprint": os.getenv("OCI_FINGERPRINT"),
-#     "tenancy": os.getenv("OCI_TENANCY_OCID"),
-#     "region": os.getenv("OCI_REGION"),
-# }
+def push_custom_metric(value: float, metric_name="oraclebot_latency_ms", success: bool = True):
+    """
+    Record a latency value into the histogram and bump an error counter if needed.
+    """
+    # We only implement the metrics that Grafana/Prometheus will read
+    if metric_name == "oraclebot_latency_ms" and _latency_hist:
+        _latency_hist.record(value)
 
-# monitoring_client = oci.monitoring.MonitoringClient(oci_config)
-# compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
-
-def push_custom_metric(value: float, metric_name="slackbot_latency_ms"):
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    metric_data = oci.monitoring.models.MetricDataDetails(
-        namespace="custom_metrics",
-        resource_group="llmapp",
-        name=metric_name,
-        dimensions={"service": "slackbot"},
-        datapoints=[
-            oci.monitoring.models.Datapoint(
-                timestamp=timestamp,
-                value=value,
-                count=1
-            )
-        ],
-        metadata={"unit": "ms"}
-    )
-    request = oci.monitoring.models.PutMetricDataDetails(metric_data=[metric_data])
-    response = monitoring_client.put_metric_data(request, compartment_id=compartment_id)
-    print(f"[✅] Metric '{metric_name}' pushed: {response.status}")
+    if not success and _error_counter:
+        _error_counter.add(1)
