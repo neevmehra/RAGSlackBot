@@ -69,9 +69,16 @@ def push_custom_metric(value: float, metric_name="oraclebot_latency_ms", success
     """
     Record a latency value into the histogram and bump an error counter if needed.
     """
-    # We only implement the metrics that Grafana/Prometheus will read
-    if metric_name == "oraclebot_latency_ms" and _latency_hist:
-        _latency_hist.record(value)
+    global _hist_cache, _meter
+    if metric_name not in _hist_cache and _meter:
+        _hist_cache[metric_name] = _meter.create_histogram(
+            name=metric_name,
+            description=f"{metric_name} (ms)",
+            unit="ms",
+        )
+    hist = _hist_cache.get(metric_name)
+    if hist:
+        hist.record(value)
 
     if not success and _error_counter:
-        _error_counter.add(1)
+        _error_counter.add(1, attributes={"metric_name": metric_name})

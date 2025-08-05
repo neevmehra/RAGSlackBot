@@ -6,6 +6,7 @@ from telemetry import tracer
 from opentelemetry import trace
 from PyPDF2 import PdfReader
 import pandas as pd
+from telemetry import push_custom_metric
 
 # ================== ORACLE DB SETUP ==================
 load_dotenv()
@@ -304,6 +305,8 @@ def embed_and_store(file_path, table_name, schema):
  
 # ================== VECTOR SEARCH + GENERATE ==================
 def vector_search(user_query, schema):
+    start = time.perf_counter()
+    ok = True
     with tracer.start_as_current_span("vector_search") as span:
         span.set_attribute("query", user_query)
         span.set_attribute("topK", initial_topK)
@@ -363,7 +366,12 @@ def vector_search(user_query, schema):
         except Exception as e:
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            ok = False
             raise
+
+        finally:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            push_custom_metric(elapsed_ms, metric_name="vector_search_time", success=ok)
 
 def get_all_schemas():
     with oracledb.connect(user=un, password=pw, dsn=cs) as conn:
