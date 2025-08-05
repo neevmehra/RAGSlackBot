@@ -16,3 +16,4 @@ prometheus-3.5.0.linux-amd64.tar.gz/
 
 # OS clutter
 .DS_Store
+prometheus-*.tar.gz
