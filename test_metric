@@ -1,6 +1,0 @@
-import time
-from telemetry import push_custom_metric
-
-# Simulate a latency value
-latency_ms = 123.45
-push_custom_metric(latency_ms, metric_name="test_latency_push")
