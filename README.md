@@ -127,3 +127,4 @@ Files are embedded and stored with associated schema/team context.
 | `/setteam team_name` | Set your Slack user to a team/schema |
 | `/unsetteam` | Remove team assignment |
 
+
