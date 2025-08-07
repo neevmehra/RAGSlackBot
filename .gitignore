@@ -13,6 +13,7 @@ __pycache__/
 wallet/
 instantclient_23_8/
 prometheus-3.5.0.linux-amd64.tar.gz/
+bfg-1.14.0.jar/
 
 # OS clutter
 .DS_Store
