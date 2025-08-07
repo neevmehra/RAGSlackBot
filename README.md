@@ -121,7 +121,7 @@ Files are embedded and stored with associated schema/team context.
 
 | Command | Description |
 |---------|-------------|
-| `/oraclebot` | Ask a support question |
+| `@oraclebot` | Ask a support question |
 | `/oracleembed table_name=name` | Embed uploaded file into specified table |
 | `/resetcontext` | Clear chat memory |
 | `/setteam team_name` | Set your Slack user to a team/schema |
