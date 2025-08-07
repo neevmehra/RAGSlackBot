@@ -1,4 +1,4 @@
-# telemetry.py
+import os
 
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
@@ -10,23 +10,21 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter
 from prometheus_client import start_http_server
 
-import os
-
-# ---- Tracing (keep your existing console span exporter) ----
+# ---- Tracing ----
 trace.set_tracer_provider(TracerProvider())
 trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-tracer = trace.get_tracer(__name__)  # <-- Add this global back
+tracer = trace.get_tracer(__name__)
 
 # ---- Metrics globals ----
 _meter = None
 _latency_hist = None
 _error_counter = None
+_hist_cache = {}
 
 def setup_telemetry(app, service_name="supportagent", service_version="1.0.0", prom_port=9464):
-    """
-    - Exposes Prometheus metrics on :prom_port (/metrics)
-    - Sets up OTel MeterProvider and instruments Flask + requests
-    - Keeps your Console tracing
+    """Exposes Prometheus metrics and instruments the Flask app for telemetry.
+
+    Sets up an OpenTelemetry MeterProvider and exports metrics on the given port (default 9464). It also instruments the Flask application and the requests library for tracing, and retains console tracing via the SimpleSpanProcessor.
     """
     resource = Resource.create({
         "service.name": service_name,
@@ -66,9 +64,7 @@ def setup_telemetry(app, service_name="supportagent", service_version="1.0.0", p
     return tracer
 
 def push_custom_metric(value: float, metric_name="oraclebot_latency_ms", success: bool = True):
-    """
-    Record a latency value into the histogram and bump an error counter if needed.
-    """
+    """Records a latency value in the histogram and increments the error counter if needed."""
     global _hist_cache, _meter
     if metric_name not in _hist_cache and _meter:
         _hist_cache[metric_name] = _meter.create_histogram(

@@ -1,12 +1,21 @@
-import os, sys, array, json, re, time, sqlite3, subprocess
-import oracledb, oci
-from sentence_transformers import SentenceTransformer, CrossEncoder
+import array
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+import oci
+import oracledb
+import pandas as pd
 from dotenv import load_dotenv
-from telemetry import tracer
 from opentelemetry import trace
 from PyPDF2 import PdfReader
-import pandas as pd
-from telemetry import push_custom_metric
+from sentence_transformers import SentenceTransformer, CrossEncoder
+
+from telemetry import tracer, push_custom_metric
 
 # ================== ORACLE DB SETUP ==================
 load_dotenv()
@@ -15,34 +24,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 oracledb.init_oracle_client(lib_dir=os.path.join(BASE_DIR, "instantclient_23_8"))
 os.environ["TNS_ADMIN"] = os.path.join(BASE_DIR, "wallet")
 
-un = os.getenv("DB_USER")
-pw = os.getenv("DB_PASS")
-cs = os.getenv("DB_DSN")
-initial_topK = 20
-final_topK = 5
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_DSN = os.getenv("DB_DSN")
+INITIAL_TOP_K = 20
+FINAL_TOP_K = 5
 
 # ================== EMBEDDING MODEL ==================
-#embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-embedding_model_id = "cohere.embed-v4.0"
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+EMBEDDING_MODEL_ID = "cohere.embed-v4.0"
 
 def get_oci_embeddings(texts):
     if not texts or not isinstance(texts, list):
         raise ValueError("Input must be a list of strings for embedding.")
-
     embed_details = oci.generative_ai_inference.models.EmbedTextDetails()
-    embed_details.compartment_id = compartment_id
+    embed_details.compartment_id = COMPARTMENT_ID
     embed_details.inputs = texts
     embed_details.truncate = "NONE"
-    embed_details.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=embedding_model_id)
-
+    embed_details.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=EMBEDDING_MODEL_ID)
     response = generative_ai_inference_client.embed_text(embed_details)
     return response.data.embeddings
 
 # ================== OCI GENERATIVE AI SETUP ==================
-compartment_id = "ocid1.compartment.oc1..aaaaaaaaawkpra4vxusalnxjz3aztkizm7jnxis5docvbj2cssqau3a4xlaq"
-model_id = "ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceyapnibwg42qjhwaxrlqfpreueirtwghiwvv2whsnwmnlva"
-endpoint = "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
+COMPARTMENT_ID = "ocid1.compartment.oc1..aaaaaaaaawkpra4vxusalnxjz3aztkizm7jnxis5docvbj2cssqau3a4xlaq"
+MODEL_ID = "ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceyapnibwg42qjhwaxrlqfpreueirtwghiwvv2whsnwmnlva"
+ENDPOINT = "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
 
 CONFIG_PROFILE = "DEFAULT"
 config_path = os.path.join(BASE_DIR, ".oci", "config")
@@ -50,114 +56,109 @@ config = oci.config.from_file(config_path, CONFIG_PROFILE)
 
 generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferenceClient(
     config=config,
-    service_endpoint=endpoint,
+    service_endpoint=ENDPOINT,
     retry_strategy=oci.retry.NoneRetryStrategy(),
     timeout=(10, 240)
 )
 
 # ================== FILE INGESTION + CHUNKING ==================
 
-def compress_pdf(input_path, output_path): #compression using qpdf
-    
-        subprocess.run(["qpdf", "--linearize", input_path, output_path], check=True)
-        return output_path
+def compress_pdf(input_path, output_path):
+    """Compresses a PDF file using qpdf linearization."""
+    subprocess.run(["qpdf", "--linearize", input_path, output_path], check=True)
+    return output_path
 
-def parse_pdf(file_path): #pdf parsing using PyPDF2
+def parse_pdf(file_path):
+    """Extracts text from a PDF file using PyPDF2."""
     text = ""
     reader = PdfReader(file_path)
     for page in reader.pages:
         extracted_text = page.extract_text()
         if extracted_text:
-            text += extracted_text + "\n"   
+            text += extracted_text + "\n"
     return text
 
 def parse_csv(file_path):
-    df = pd.read_csv(file_path, encoding='utf-8')
+    df = pd.read_csv(file_path, encoding="utf-8")
     df.columns = df.columns.str.strip()
-    records = df.to_dict('records')
+    records = df.to_dict("records")
     parsed_records = []
     for idx, record in enumerate(records):
-        sr_number = record.get('SR Number', 'N/A')
-        customer = record.get('Global Parent Party Name', 'N/A')
-        country = record.get('Country Name', 'N/A')
-        title = record.get('Title', 'N/A')
-        error_message = record.get('Error Message', 'N/A')
-        severity = record.get('Severity', 'N/A')
-        status = record.get('Status', 'N/A')
-        product_line = record.get('Product Line', 'N/A')
-        product_category = record.get('Product Category(Legacy)', 'N/A')
-        category = record.get('Category', 'N/A')
-        product_version = record.get('Product Version', 'N/A')
-        platform = record.get('Platform', 'N/A')
-        root_cause = record.get('Root Cause', 'N/A')
-        resolution_range = record.get('Resolution Range', 'N/A')
-        creation_date = record.get('Creation Date', 'N/A')
-        created_month = record.get('Create Month', 'N/A')
+        sr_number = record.get("SR Number", "N/A")
+        customer = record.get("Global Parent Party Name", "N/A")
+        country = record.get("Country Name", "N/A")
+        title = record.get("Title", "N/A")
+        error_message = record.get("Error Message", "N/A")
+        severity = record.get("Severity", "N/A")
+        status = record.get("Status", "N/A")
+        product_line = record.get("Product Line", "N/A")
+        product_category = record.get("Product Category(Legacy)", "N/A")
+        category = record.get("Category", "N/A")
+        product_version = record.get("Product Version", "N/A")
+        platform = record.get("Platform", "N/A")
+        root_cause = record.get("Root Cause", "N/A")
+        resolution_range = record.get("Resolution Range", "N/A")
+        creation_date = record.get("Creation Date", "N/A")
+        created_month = record.get("Create Month", "N/A")
         closed_month = record.get("Close Month", "N/A")
-        date_closed = record.get('Date Closed', 'N/A')
-        resolution_date = record.get('Resolution Date', 'N/A')
-        sr_type = record.get('SR Type', 'N/A')
-        source = record.get('Source', 'N/A')
-        level_of_service = record.get('Level of Service', 'N/A')
-        functional_description = record.get('Functional Product Description', 'N/A')
-
+        date_closed = record.get("Date Closed", "N/A")
+        resolution_date = record.get("Resolution Date", "N/A")
+        sr_type = record.get("SR Type", "N/A")
+        source = record.get("Source", "N/A")
+        level_of_service = record.get("Level of Service", "N/A")
+        functional_description = record.get("Functional Product Description", "N/A")
         parsed_record = {
-            "sr_number": record.get('SR Number', 'N/A'),
-            "customer": record.get('Global Parent Party Name', 'N/A'),
-            "party_name": record.get('Party Name', 'N/A'),
-            "business_type": record.get('Business Type', 'N/A'),
-            "country_name": record.get('Country Name', 'N/A'),
-            "title": record.get('Title', 'N/A'),
-            "error_message": record.get('Error Message', 'N/A'),
-            "severity": record.get('Severity', 'N/A'),
-            "initial_severity": record.get('Initial Severity', 'N/A'),
-            "highest_severity": record.get('Highest Severity', 'N/A'),
-            "contact_full_name": record.get('Contact Full Name', 'N/A'),
-            "escalation_status": record.get('Escalation Status', 'N/A'),
-            "creation_date": record.get('Creation Date', 'N/A'),
-            "created_month": record.get('Create Month', 'N/A'),
-            "closed_month": record.get('Close Month', 'N/A'),
-            "last_updated_on": record.get('Last Updated On', 'N/A'),
-            "date_closed": record.get('Date Closed', 'N/A'),
-            "resolution_date": record.get('Resolution Date', 'N/A'),
-            "initial_response_done": record.get('Initial Response Done', 'N/A'),
-            "sr_type": record.get('SR Type', 'N/A'),
-            "source": record.get('Source', 'N/A'),
-            "status": record.get('Status', 'N/A'),
-            "substatus": record.get('SubStatus', 'N/A'),
-            "resolution_range": record.get('Resolution Range', 'N/A'),
-            "root_cause": record.get('Root Cause', 'N/A'),
-            "product_line": record.get('Product Line', 'N/A'),
-            "product_version": record.get('Product Version', 'N/A'),
-            "hardware_software": record.get('Hardware-Software', 'N/A'),
-            "source_system": record.get('Source System', 'N/A'),
-            "functional_product_description": record.get('Functional Product Description', 'N/A'),
-            "level_of_service": record.get('Level of Service', 'N/A'),
+            "sr_number": record.get("SR Number", "N/A"),
+            "customer": record.get("Global Parent Party Name", "N/A"),
+            "party_name": record.get("Party Name", "N/A"),
+            "business_type": record.get("Business Type", "N/A"),
+            "country_name": record.get("Country Name", "N/A"),
+            "title": record.get("Title", "N/A"),
+            "error_message": record.get("Error Message", "N/A"),
+            "severity": record.get("Severity", "N/A"),
+            "initial_severity": record.get("Initial Severity", "N/A"),
+            "highest_severity": record.get("Highest Severity", "N/A"),
+            "contact_full_name": record.get("Contact Full Name", "N/A"),
+            "escalation_status": record.get("Escalation Status", "N/A"),
+            "creation_date": record.get("Creation Date", "N/A"),
+            "created_month": record.get("Create Month", "N/A"),
+            "closed_month": record.get("Close Month", "N/A"),
+            "last_updated_on": record.get("Last Updated On", "N/A"),
+            "date_closed": record.get("Date Closed", "N/A"),
+            "resolution_date": record.get("Resolution Date", "N/A"),
+            "initial_response_done": record.get("Initial Response Done", "N/A"),
+            "sr_type": record.get("SR Type", "N/A"),
+            "source": record.get("Source", "N/A"),
+            "status": record.get("Status", "N/A"),
+            "substatus": record.get("SubStatus", "N/A"),
+            "resolution_range": record.get("Resolution Range", "N/A"),
+            "root_cause": record.get("Root Cause", "N/A"),
+            "product_line": record.get("Product Line", "N/A"),
+            "product_version": record.get("Product Version", "N/A"),
+            "hardware_software": record.get("Hardware-Software", "N/A"),
+            "source_system": record.get("Source System", "N/A"),
+            "functional_product_description": record.get("Functional Product Description", "N/A"),
+            "level_of_service": record.get("Level of Service", "N/A"),
         }
         parsed_records.append(parsed_record)
-    
     return parsed_records
 
 chunk_size = 300  # Define a chunk size in characters for text splitting
-def chunk_text_by_tokens(text, max_tokens=300):
-    return [text[i:i+chunk_size]for i in range(0, len(text), chunk_size)]
 
+def chunk_text_by_tokens(text, max_tokens=300):
+    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
 
 def embed_and_store(file_path, table_name, schema):
     with tracer.start_as_current_span("embed_and_store") as span:
         span.set_attribute("file_path", file_path)
         span.set_attribute("table_name", table_name)
-        span.set_attribute("file_type", "json" if file_path.endswith('.json') else "other")
-
-        #encoder = SentenceTransformer('all-MiniLM-L12-v2')
+        span.set_attribute("file_type", "json" if file_path.endswith(".json") else "other")
         docs = []
-
         # =================== File Parsing ====================
-        if file_path.endswith('.json'):
-            with open(file_path, 'r', encoding='utf-8') as f:
+        if file_path.endswith(".json"):
+            with open(file_path, "r", encoding="utf-8") as f:
                 try:
                     data = json.load(f)
-
                     # === Flatten and normalize ticket structure ===
                     if isinstance(data, list):
                         if all(isinstance(x, list) for x in data):
@@ -171,11 +172,8 @@ def embed_and_store(file_path, table_name, schema):
                             tickets = [data]
                     else:
                         raise ValueError("Unsupported JSON format")
-
                 except json.JSONDecodeError:
                     raise ValueError("Invalid JSON format")
-
-
             for ticket in tickets:
                 doc_text = "\n".join([
                     f"SR: {ticket.get('sr_number', 'N/A')}",
@@ -191,13 +189,11 @@ def embed_and_store(file_path, table_name, schema):
                     f"Ticket URL: {ticket.get('ticket_url', 'N/A')}"
                 ])
                 docs.append({"text": doc_text})
-        
-        elif file_path.endswith('.csv'):
+        elif file_path.endswith(".csv"):
             try:
                 csv_records = parse_csv(file_path)
                 if not csv_records:
                     raise ValueError("No records found in CSV file")
-
                 for record in csv_records:
                     doc_text = "\n".join([
                         f"Service Request: {record['sr_number']}",
@@ -234,20 +230,14 @@ def embed_and_store(file_path, table_name, schema):
                     ])
                     docs.append({"text": doc_text})
             except Exception as e:
-                print(f"MINIMAL TEST ERROR: {str(e)}")
                 span.record_exception(e)
                 span.set_status(trace.Status(trace.StatusCode.ERROR, f"CSV parsing error: {str(e)}"))
                 raise ValueError(f"Error parsing CSV file: {str(e)}")
-
-        elif file_path.endswith('.pdf'):
-
+        elif file_path.endswith(".pdf"):
             compress_path = os.path.join("/tmp", f"compressed._{os.path.basename(file_path)}")
-            compress_pdf(file_path, compress_path) # compress the pdf file first
-            
+            compress_pdf(file_path, compress_path)
             text = parse_pdf(compress_path)
-
             paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 50]
-
             for i, paragraph in enumerate(paragraphs):
                 chunks = chunk_text_by_tokens(paragraph)
                 for j, chunk in enumerate(chunks):
@@ -255,29 +245,24 @@ def embed_and_store(file_path, table_name, schema):
                         "text": chunk,
                         "chunk_id": f"pdf_para{i+1}_chunk{j+1}",
                         "source": f"PDF_{os.path.basename(file_path)}"
-            }) ###end of the pdf extraction
-
+                    })
         # =================== Embedding ====================
         data = [{"id": idx, "vector_source": doc["text"], "payload": doc} for idx, doc in enumerate(docs)]
-        texts = [row['vector_source'] for row in data]
-        #embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
+        texts = [row["vector_source"] for row in data]
+        # embeddings = encoder.encode(texts, batch_size=32, show_progress_bar=True)
         embeddings = get_oci_embeddings(texts)
-
         for row, embedding in zip(data, embeddings):
-            row['vector'] = array.array("f", embedding)
-
+            row["vector"] = array.array("f", embedding)
         # =================== Oracle Insert ====================
         try:
-            with oracledb.connect(user=un, password=pw, dsn=cs) as connection:
+            with oracledb.connect(user=DB_USER, password=DB_PASS, dsn=DB_DSN) as connection:
                 with connection.cursor() as cursor:
                     qualified_table = f"{schema}.{table_name}"
-
                     cursor.execute("""
                         SELECT COUNT(*) FROM all_tables
                         WHERE table_name = :table_name AND owner = :owner
-                    """, {'table_name': table_name.upper(), 'owner': schema.upper()})
+                    """, {"table_name": table_name.upper(), "owner": schema.upper()})
                     exists = cursor.fetchone()[0] > 0
-
                     if not exists:
                         cursor.execute(f"""
                             CREATE TABLE {qualified_table} (
@@ -286,99 +271,93 @@ def embed_and_store(file_path, table_name, schema):
                                 vector VECTOR
                             )
                         """)
-
-                    prepared_data = [(row['id'], json.dumps(row['payload']), row['vector']) for row in data]
-
+                    prepared_data = [(row["id"], json.dumps(row["payload"]), row["vector"]) for row in data]
                     cursor.executemany(
                         f"INSERT INTO {qualified_table} (id, payload, vector) VALUES (:1, :2, :3)",
                         prepared_data
                     )
-
                 connection.commit()
                 span.set_attribute("records_inserted", len(prepared_data))
                 span.set_status(trace.Status(trace.StatusCode.OK))
-
         except Exception as e:
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
- 
+
 # ================== VECTOR SEARCH + GENERATE ==================
 def vector_search(user_query, schema):
     start = time.perf_counter()
     ok = True
     with tracer.start_as_current_span("vector_search") as span:
         span.set_attribute("query", user_query)
-        span.set_attribute("topK", initial_topK)
-
+        span.set_attribute("topK", INITIAL_TOP_K)
         tables_searched = 0
-
         try:
-            print("[DEBUG] vector_search() started.")
             embedding = get_oci_embeddings([user_query])[0]
             vec = array.array("f", embedding)
             retrieved_docs = []
-
-            with oracledb.connect(user=un, password=pw, dsn=cs) as connection:
+            with oracledb.connect(user=DB_USER, password=DB_PASS, dsn=DB_DSN) as connection:
                 with connection.cursor() as cursor:
                     # Fetch tables once
                     cursor.execute("""
                         SELECT table_name FROM all_tables
                         WHERE owner = :owner AND table_name NOT LIKE 'BIN$%'
-                    """, {'owner': schema.upper()})
+                    """, {"owner": schema.upper()})
                     tables = [row[0] for row in cursor.fetchall()]
-
                     for table_name in tables:
                         tables_searched += 1
-                        print(f"[DEBUG] Searching table: {table_name}")
                         try:
-                            print(f"[DEBUG] Attempting vector search in table: {table_name}")
                             sql_retrieval = f'''
                                 SELECT payload, VECTOR_DISTANCE(vector, :vector, COSINE) as score 
                                 FROM {schema}.{table_name}
                                 ORDER BY score 
-                                FETCH APPROX FIRST {initial_topK} ROWS ONLY
+                                FETCH APPROX FIRST {INITIAL_TOP_K} ROWS ONLY
                             '''
                             rows = list(cursor.execute(sql_retrieval, vector=vec))
-
-                            if not rows:
-                                print(f"[DEBUG] No rows returned from {table_name}")
-
                             for (info, score) in rows:
                                 info_str = info.read() if isinstance(info, oracledb.LOB) else info
-                                print(f"[DEBUG] Score from table {table_name}: {score:.4f}")
                                 retrieved_docs.append((score, json.loads(info_str)["text"]))
-
                         except Exception as e:
-                            print(f"[WARNING] Skipping table {table_name}: {e}")
                             continue
-
             retrieved_docs.sort(key=lambda x: x[0])
-            raw_texts = [text for _, text in retrieved_docs[:initial_topK]]
-            final_docs = rerank_passages(user_query, raw_texts, top_n=final_topK)
-
+            raw_texts = [text for _, text in retrieved_docs[:INITIAL_TOP_K]]
+            final_docs = rerank_passages(user_query, raw_texts, top_n=FINAL_TOP_K)
             span.set_attribute("documents_retrieved", len(final_docs))
             span.set_attribute("tables_searched", tables_searched)
             span.set_status(trace.Status(trace.StatusCode.OK))
-
             return final_docs
-
         except Exception as e:
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             ok = False
             raise
-
         finally:
             elapsed_ms = (time.perf_counter() - start) * 1000
             push_custom_metric(elapsed_ms, metric_name="vector_search_time", success=ok)
 
 def get_all_schemas():
-    with oracledb.connect(user=un, password=pw, dsn=cs) as conn:
+    with oracledb.connect(user=DB_USER, password=DB_PASS, dsn=DB_DSN) as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT username FROM all_users
-                WHERE username NOT IN ('SYS', 'AUDSYS', 'SYSTEM', 'SYSBACKUP', 'SYSDG', 'SYSKM', 'SYSRAC', 'OUTLN', 'VECSYS', 'GSMADMIN_INTERNAL', 'GSMUSER', 'DIP', 'XS$NULL', 'REMOTE_SCHEDULER_AGENT', 'DBSFWUSER', 'GGSHAREDCAP', 'DBSNMP', 'SYS$UMF', 'DGPDB_INT', 'APPQOSSYS', 'GSMCATUSER', 'GGSYS', 'DVF', 'MTSSYS', 'XDB', 'LBACSYS', 'C##CLOUD_OPS', 'C##API', 'C##DNSREST', 'C##RFS', 'C##QUEUE$SERVICE', 'C##DV_OWNER', 'C##DV_ACCT_ADMIN', 'C##CLOUD$SERVICE', 'C##DATA$SHARE', 'MDDATA', 'ADMIN', 'LBAC_TRIGGER', 'DCAT_ADMIN', 'ADB_APP_STORE', 'GGADMIN', 'ADBSNMP', 'CTXSYS', 'MDSYS', 'DVSYS', 'FLOWS_FILES', 'C##ADP$SERVICE', 'OMLMOD$PROXY', 'OML$MODELS', 'ORDS_PUBLIC_USER', 'ORDS_METADATA', 'ORDS_PLSQL_GATEWAY', 'GRAPH$METADATA', 'GRAPH$PROXY_USER', 'ODI$PROXY', 'ODI_REPO_USER', 'C##OMLIDM', 'SSB', 'SH', 'PYQSYS', 'RQSYS', 'C##OMLREST2', 'OML$METADATA', 'OML$PROXY', 'RMAN$CATALOG', 'APEX_PUBLIC_ROUTER', 'C##TOTP_GENERATOR', 'APEX_240200', 'WKSP_PROJECTINDUSTRY', 'WKSP_TESTINGAPEX', 'WKSP_INTERNTESTINGAPEX', 'CUSTOMER_SUPPORT_AI', 'TESTING', 'C##TOTP_VALIDATOR', 'BAASSYS')
+                WHERE username NOT IN (
+                    'SYS','AUDSYS','SYSTEM','SYSBACKUP','SYSDG','SYSKM','SYSRAC',
+                    'OUTLN','VECSYS','GSMADMIN_INTERNAL','GSMUSER','DIP','XS$NULL',
+                    'REMOTE_SCHEDULER_AGENT','DBSFWUSER','GGSHAREDCAP','DBSNMP',
+                    'SYS$UMF','DGPDB_INT','APPQOSSYS','GSMCATUSER','GGSYS','DVF',
+                    'MTSSYS','XDB','LBACSYS','C##CLOUD_OPS','C##API','C##DNSREST',
+                    'C##RFS','C##QUEUE$SERVICE','C##DV_OWNER','C##DV_ACCT_ADMIN',
+                    'C##CLOUD$SERVICE','C##DATA$SHARE','MDDATA','ADMIN','LBAC_TRIGGER',
+                    'DCAT_ADMIN','ADB_APP_STORE','GGADMIN','ADBSNMP','CTXSYS','MDSYS',
+                    'DVSYS','FLOWS_FILES','C##ADP$SERVICE','OMLMOD$PROXY','OML$MODELS',
+                    'ORDS_PUBLIC_USER','ORDS_METADATA','ORDS_PLSQL_GATEWAY',
+                    'GRAPH$METADATA','GRAPH$PROXY_USER','ODI$PROXY','ODI_REPO_USER',
+                    'C##OMLIDM','SSB','SH','PYQSYS','RQSYS','C##OMLREST2','OML$METADATA',
+                    'OML$PROXY','RMAN$CATALOG','APEX_PUBLIC_USER','C##TOTP_GENERATOR',
+                    'APEX_240200','WKSP_PROJECTINDUSTRY','WKSP_TESTINGAPEX',
+                    'WKSP_INTERNTESTINGAPEX','CUSTOMER_SUPPORT_AI','APEX_PUBLIC_ROUTER',
+                    'TESTING','C##TOTP_VALIDATOR','BAASSYS'
+                )
             """)
             schemas = [row[0] for row in cursor.fetchall()]
     return schemas
@@ -387,62 +366,48 @@ def get_all_schemas():
 def rerank_passages(query, passages, top_n=5):
     pairs = [(query, passage) for passage in passages]
     scores = reranker.predict(pairs, batch_size=8)
-    ranked = sorted(zip(passages, scores), key = lambda x: x[1], reverse=True)
+    ranked = sorted(zip(passages, scores), key=lambda x: x[1], reverse=True)
     return [p for p, _ in ranked[:top_n]]
 
 # ================== LLM OUTPUT ==================
 def clean_llm_response_slack(text: str) -> str:
-    # Remove "#"
+    # Remove markdown headers (e.g., "# Title")
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-
-    # Convert "**" to "*" for bolding
+    # Convert bold markdown to Slack bold (single asterisks)
     text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
-
-    # Remove extra spaces
+    # Remove extra whitespace and return
     return text.strip()
 
 def clean_llm_response_web(text: str) -> str:
     # Remove markdown headers
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-
-    # Convert **bold** and *bold* to <strong>...</strong>
+    # Convert markdown bold to HTML <strong> tags
     text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*(.*?)\*", r"<strong>\1</strong>", text)
-
     return text.strip()
 
 def generate_answer(user_query, retrieved_docs):
-
-    with tracer.start_as_current_span("generate_answer") as span: 
+    with tracer.start_as_current_span("generate_answer") as span:
         span.set_attribute("query", user_query)
-        #relevant documents in search 
         span.set_attribute("context_docs_count", len(retrieved_docs))
-        #which model is being used 
-        span.set_attribute("model_id", model_id)
-
+        span.set_attribute("model_id", MODEL_ID)
     context = "\n==========\n".join(retrieved_docs)
-   
-    try: 
+    try:
         context = "\n==========\n".join(retrieved_docs)
-
         span.set_attribute("context_length", len(context))
         user_prompt = (
-        "You are an expert assistant trained to help users based on internal support documents.\n\n"
-        f"Context:\n{context}\n\n"
-        f"Question:\n{user_query}\n\n"
-        "Answer clearly and concisely with step-by-step resolution processes and include a citation section at the end citing your sources."
-
-        "If the user explicitly asks for a root cause analysis for a specific company, respond using the following structure:\n"
-        "1. Event Summary: Briefly describe what happened.\n"
-        "2. Root Cause Details: Explain the underlying issue, how it was identified, and why it occurred.\n"
-        "3. Corrective Actions: Identify any recurring patterns or issues for that company and suggest specific steps to fix or prevent them.\n"
-        "4. Event Timeline: Provide key timestamps and events in chronological order.\n\n"
-        "For all other questions, respond clearly and concisely with step-by-step resolution processes when appropriate, "
-        "and include a citation section at the end citing your sources."
+            "You are an expert assistant trained to help users based on internal support documents.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question:\n{user_query}\n\n"
+            "Answer clearly and concisely with step-by-step resolution processes and include a citation section at the end citing your sources.\n\n"
+            "If the user explicitly asks for a root cause analysis for a specific company, respond using the following structure:\n"
+            "1. Event Summary: Briefly describe what happened.\n"
+            "2. Root Cause Details: Explain the underlying issue, how it was identified, and why it occurred.\n"
+            "3. Corrective Actions: Identify any recurring patterns or issues for that company and suggest specific steps to fix or prevent them.\n"
+            "4. Event Timeline: Provide key timestamps and events in chronological order.\n\n"
+            "For all other questions, respond clearly and concisely with step-by-step resolution processes when appropriate, and include a citation section at the end citing your sources."
         )
-    
         span.set_attribute("prompt_length", len(user_prompt))
-
         chat_request = oci.generative_ai_inference.models.CohereChatRequest(
             message=user_prompt,
             max_tokens=1200,
@@ -450,42 +415,33 @@ def generate_answer(user_query, retrieved_docs):
             top_p=0.75,
             top_k=0
         )
-
         chat_detail = oci.generative_ai_inference.models.ChatDetails(
-            compartment_id=compartment_id,
-            serving_mode=oci.generative_ai_inference.models.OnDemandServingMode(model_id=model_id),
+            compartment_id=COMPARTMENT_ID,
+            serving_mode=oci.generative_ai_inference.models.OnDemandServingMode(model_id=MODEL_ID),
             chat_request=chat_request
         )
-
         chat_response = generative_ai_inference_client.chat(chat_detail)
         # Apply post-processing filter
         raw_response = chat_response.data.chat_response.text
-
         span.set_attribute("raw_response_length", len(raw_response))
-
-        
         return raw_response
-    
-    except Exception as e: 
+    except Exception as e:
         span.record_exception(e)
         span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-        raise 
+        raise
 
 # ================== SCHEMA MANIPULATION ==================
 def create_schema_if_not_exists(schema_name):
     admin_user = os.getenv("DB_USER")
     admin_pass = os.getenv("DB_PASS")
     dsn = os.getenv("DB_DSN")
-
     schema_name = schema_name.upper()
-    password = "TempStrongPass123"  # Random
-
+    password = "TempStrongPass123"  # Temporary strong password for new schema
     with oracledb.connect(user=admin_user, password=admin_pass, dsn=dsn) as conn:
         with conn.cursor() as cur:
             # Check if schema (user) already exists
             cur.execute("SELECT COUNT(*) FROM dba_users WHERE username = :name", {"name": schema_name})
             exists = cur.fetchone()[0] > 0
-
             if not exists:
                 cur.execute(f"CREATE USER {schema_name} IDENTIFIED BY {password}")
                 cur.execute(f"GRANT CONNECT, RESOURCE TO {schema_name}")
@@ -496,15 +452,13 @@ def create_schema_if_not_exists(schema_name):
 # ================== ENTRY POINT ==================
 if __name__ == "__main__":
     mode = input("Type 'embed' to load/encode data or 'ask' to query: ").strip().lower()
-
-    if mode == 'embed':
+    if mode == "embed":
         path = input("Enter path to your FAQ file: ").strip()
         table_name = input("Enter the table name to store this data: ").strip()
         schema = input("Enter schema name (e.g., TeamA): ").strip()
         embed_and_store(path, table_name, schema)
         print("Embedding + DB insert complete.")
-
-    elif mode == 'ask':
+    elif mode == "ask":
         while True:
             user_input = input("\nAsk your question (or type quit): ").strip()
             if user_input.lower() in ["quit", "exit"]:

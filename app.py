@@ -1,21 +1,33 @@
-# IMPORTS
-import threading, requests, os, re, redis, json, sqlite3
+import json
+import os
+import re
+import sqlite3
+import threading
+from base64 import urlsafe_b64decode
+import time
+import oci
+import requests
+import redis
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
-from LLMIntegration import vector_search, generate_answer, embed_and_store, create_schema_if_not_exists, clean_llm_response_slack, get_all_schemas, clean_llm_response_web
-from telemetry import setup_telemetry 
 from opentelemetry import trace
 from dotenv import load_dotenv
-import time, oci
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
-from base64 import urlsafe_b64decode
-from telemetry import push_custom_metric
 
+from LLMIntegration import (
+    clean_llm_response_slack,
+    clean_llm_response_web,
+    create_schema_if_not_exists,
+    embed_and_store,
+    generate_answer,
+    get_all_schemas,
+    vector_search
+)
+from telemetry import setup_telemetry, push_custom_metric
 
-#added a change here 
 # Connect to local Redis instance (data cache)
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
 load_dotenv()
 app = Flask(__name__)
@@ -26,19 +38,14 @@ tracer = setup_telemetry(app)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 file_cache = {}
 SLACK_BOT_USER_ID = os.getenv("SLACK_BOT_USER_ID")
-config = oci.config.from_file('/home/opc/oracle-bot/.oci/config')
-print(config['user'], config['region'])
-
-
-USERS = {
-    "admin": "1234"
-}
+config = oci.config.from_file("/home/opc/oracle-bot/.oci/config")
+# Remove debug print for config
+# print(config["user"], config["region"])
 
 @app.route("/login")
 def login():
     oauth = get_oauth_session()
     authorization_url, state = oauth.authorization_url(os.getenv("OAUTH_AUTH_URL"))
-
     # Store state in session to validate later
     session["oauth_state"] = state
     return redirect(authorization_url)
@@ -51,20 +58,16 @@ def callback():
         client_secret=os.getenv("OAUTH_CLIENT_SECRET"),
         authorization_response=request.url,
     )
-
     session["oauth_token"] = token
-
-    # Get user info from ID token (JWT) or make request to userinfo endpoint if available
+    # Get user info from ID token (JWT) if available
     id_token = token.get("id_token")
     if id_token:
-
-        payload_part = id_token.split('.')[1]
-        padded = payload_part + '=' * (4 - len(payload_part) % 4)
+        payload_part = id_token.split(".")[1]
+        padded = payload_part + "=" * (4 - len(payload_part) % 4)
         user_info = json.loads(urlsafe_b64decode(padded))
         session["user"] = user_info.get("email", "Unknown")
     else:
         session["user"] = "Unknown"
-
     return redirect("/")
 
 @app.route("/logout")
@@ -78,37 +81,28 @@ def index():
         return redirect("/login")
     return render_template("upload.html")
 
-
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     data = request.get_json()
-
     # Handle Slack URL verification challenge
     if "challenge" in data:
         return jsonify({"challenge": data["challenge"]})
-
     event = data.get("event", {})
     if event.get("type") != "message" or event.get("subtype"):
         return jsonify({}), 200  # Ignore bot messages, joins, edits, etc.
-
     text = event.get("text", "")
     user_id = event.get("user")
     channel_id = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
-
     # Determine if bot was explicitly mentioned
     bot_mentioned = f"<@{SLACK_BOT_USER_ID}>" in text
-
     # Check if this is a follow-up in an active thread
     thread_active = redis_client.get(f"active_thread:{channel_id}:{thread_ts}")
-
     if not bot_mentioned and not thread_active:
         return jsonify({}), 200  # Ignore unrelated messages
-
     schema = get_schema_for_user(user_id)
     if not schema:
         return jsonify({}), 200  # User has no team/schema assigned
-
     # Mark thread as active for follow-ups (15 min TTL)
     redis_client.setex(f"active_thread:{channel_id}:{thread_ts}", 900, "active")
 
@@ -117,21 +111,17 @@ def slack_events():
         prior_memory = redis_client.get(memory_key)
         memory_text = json.loads(prior_memory) if prior_memory else []
         memory_text = memory_text[-7:]  # Keep recent history
-
         try:
             docs = vector_search(text, schema)
             all_context = memory_text + docs
             response = generate_answer(text, all_context)
             response = clean_llm_response_slack(response)
-
             # Update memory
             new_entry = f"User: {text}\nBot: {response}"
             memory_text.append(new_entry)
             redis_client.setex(memory_key, 900, json.dumps(memory_text))
-
         except Exception as e:
             response = f"⚠️ Error generating response: {str(e)}"
-
         headers = {
             "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
             "Content-Type": "application/json"
@@ -146,135 +136,15 @@ def slack_events():
     threading.Thread(target=process_and_reply).start()
     return jsonify({}), 200
 
-
-    # Handle Slash Commands (form-encoded)
-    user_input = request.form.get("text", "").strip()
-    command = request.form.get("command", "").strip()
-    response_url = request.form.get("response_url")
-    user_id = request.form.get("user_id")
-    channel_id = request.form.get("channel_id")
-
-    if command == "/oracleembed":
-        schema = get_schema_for_user(user_id)
-        if not schema:
-            return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
-
-        table_match = re.search(r'table_name=(\w+)', user_input)
-
-        if not table_match:
-            return jsonify({
-                "response_type": "ephemeral",
-                "text": "Missing table_name parameter. Usage: /oracleembed table_name=your_table"
-            })
-        
-        table_name = f"{schema}.{table_match.group(1)}"
-        file_info = file_cache.get((user_id, channel_id))
-        
-        if not file_info:
-            return jsonify({
-                "response_type": "ephemeral",
-                "text": "No recent file found. Please upload a file first."
-            })
-        
-        threading.Thread(
-            target=process_slack_embedding,
-            args=(user_id, file_info["file_id"], table_name, response_url)
-        ).start()
-        
-        return jsonify({
-            "response_type": "ephemeral",
-            "text": "Processing your file embedding..."
-        })
-    
-    elif command == "/resetcontext":
-        memory_key = f"context:{user_id}:{channel_id}"
-        redis_client.delete(memory_key)
-        return jsonify({"text": "🔁 Context memory has been cleared."})
-
-    elif command == "/oraclebot":
-        schema = get_schema_for_user(user_id)
-        thread_ts = request.form.get("thread_ts") or request.form.get("message_ts")
-        print("Form Data:", request.form.to_dict())
-
-        if not schema:
-            return jsonify({ "text": "You are not assigned to any team. Use /setteam." })
-
-        if not user_input or not response_url:
-            return jsonify({
-                "response_type": "ephemeral",
-                "text": "Please enter a question."
-            })
-        
-        def process_query_and_respond(thread_ts):
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span("oraclebot_response_latency") as span:
-                start_time = time.perf_counter()
-                try:
-                    # Fetch previous memory if any
-                    memory_key = f"context:{user_id}:{channel_id}"
-                    prior_memory = redis_client.get(memory_key)
-
-                    if prior_memory:
-                        memory_text = json.loads(prior_memory)
-                    else:
-                        memory_text = []
-
-                    memory_text = memory_text[-7:]  # Trim after assigning
-
-                    # Combine vector search with short-term memory
-                    docs = vector_search(user_input, schema)
-                    all_context = memory_text + docs
-                    response = generate_answer(user_input, all_context)
-                    response = clean_llm_response_slack(response)
-
-                    # Update the memory with this latest turn
-                    new_entry = f"User: {user_input}\nBot: {response}"
-                    memory_text.append(new_entry)
-
-                    # Save back to Redis with TTL = 15 mins (900 seconds)
-                    redis_client.setex(memory_key, 900, json.dumps(memory_text))
-
-                except Exception as e:
-                    response = f"Error: {str(e)}"
-
-                requests.post(response_url, json={
-                    "response_type": "in_channel",
-                    "text": response,
-                    "thread_ts": thread_ts
-                })
-
-                end_time = time.perf_counter()
-                latency_ms = (end_time - start_time) * 1000  # convert to milliseconds
-                span.set_attribute("oraclebot.latency_ms", latency_ms)
-                print(f"[Telemetry] OracleBot Response Latency: {latency_ms:.2f} ms")
-                push_custom_metric(latency_ms, metric_name="oraclebot_latency_ms")
-
-        
-        threading.Thread(target=process_query_and_respond, args=(thread_ts,)).start()
-        headers = {
-            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        requests.post("https://slack.com/api/chat.postMessage", headers=headers, json={
-            "channel": channel_id,
-            "text": "Working on it...⏳",
-            "thread_ts": thread_ts
-        })
-
-    
-    return jsonify({"error": "Unsupported command"}), 400
-
 @app.route("/ask", methods=["POST"])
 def ask():
     data = request.json or {}
     question = data.get("question")
     schema = data.get("schema")
-
     if not question:
         return jsonify({"error": "No question provided"}), 400
     if not schema:
         return jsonify({"error": "No schema provided"}), 400
-
     try:
         docs = vector_search(question, schema)  # Query from the correct schema
         response = generate_answer(question, docs)
@@ -288,7 +158,6 @@ def embed_file():
     new_team = request.form.get("new_team")
     table_name = request.form.get("table_name")
     file = request.files.get("file")
-
     # Handle creation of new team schema
     if new_team and new_team.strip():
         schema = new_team.strip()
@@ -296,10 +165,8 @@ def embed_file():
         user_id = session.get("user_id")
         if user_id:
             update_user_team(user_id, schema)
-
     if not file or not table_name or not schema:
         return jsonify({"error": "Missing file, table_name, or schema"}), 400
-
     with tracer.start_as_current_span("embed_file_handler"):
         try:
             temp_path = f"/tmp/{file.filename}"
@@ -326,13 +193,11 @@ def slack_commands():
     command = request.form.get("command")
     user_id = request.form.get("user_id")
     text = request.form.get("text", "").strip()
-
     if command == "/setteam":
         team = text.strip().lower()
         create_schema_if_not_exists(team)
         update_user_team(user_id, team)
         return jsonify({"text": f"✅ Your team has been set to {team} and schema created (if needed)."})
-    
     if command == "/unsetteam":
         conn = sqlite3.connect("user_team.db")
         cur = conn.cursor()
@@ -340,6 +205,12 @@ def slack_commands():
         conn.commit()
         conn.close()
         return jsonify({"text": "✅ Your team assignment has been removed."})
+    if command == "/resetcontext":
+        channel_id = request.form.get("channel_id")
+        memory_key = f"context:{user_id}:{channel_id}"
+        redis_client.delete(memory_key)
+        return jsonify({"text": "🔁 Context memory has been cleared."})
+
 
 def get_oauth_session(state=None, token=None):
     return OAuth2Session(
@@ -390,9 +261,7 @@ def download_slack_file(file_id):
     return file_response.content, file_info["file"]["name"]
 
 def process_slack_embedding(user_id, file_id, table_name, response_url):
-    
     schema = get_schema_for_user(user_id)
-
     try:
         file_content, filename = download_slack_file(file_id)
         temp_path = f"/tmp/{filename}"
